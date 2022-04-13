@@ -4,7 +4,7 @@
 TheApp* CreateApp() { return new MyApp(); }
 
 // triangle count
-#define N	(1024*1024)
+#define N	64
 
 // forward declarations
 void Subdivide( uint nodeIdx );
@@ -174,7 +174,7 @@ void MyApp::Tick( float deltaTime )
 		ray.O = float3( 0, 0, -18 );
 		ray.D = normalize( pixelPos - ray.O );
 		ray.t = 1e30f;
-	#if 0
+	#if 1
 		for( int i = 0; i < N; i++ ) IntersectTri( ray, tri[i] );
 	#else
 		IntersectBVH( ray, rootNodeIdx );
