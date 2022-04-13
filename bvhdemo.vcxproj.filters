@@ -1,0 +1,40 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="4.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup>
+    <ClCompile Include="template\template.cpp">
+      <Filter>template</Filter>
+    </ClCompile>
+    <ClCompile Include="myapp.cpp" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="template\common.h">
+      <Filter>template</Filter>
+    </ClInclude>
+    <ClInclude Include="template\precomp.h">
+      <Filter>template</Filter>
+    </ClInclude>
+    <ClInclude Include="myapp.h" />
+    <ClInclude Include="cl\tools.cl">
+      <Filter>template\cl</Filter>
+    </ClInclude>
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="template\LICENSE">
+      <Filter>template</Filter>
+    </None>
+    <None Include="README.md">
+      <Filter>template</Filter>
+    </None>
+    <None Include="cl\kernels.cl">
+      <Filter>template\cl</Filter>
+    </None>
+  </ItemGroup>
+  <ItemGroup>
+    <Filter Include="template">
+      <UniqueIdentifier>{a7d6e3cb-bfcd-438d-979f-17df241a55b4}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="template\cl">
+      <UniqueIdentifier>{dc41819e-b6c1-4070-b4c1-0849e444ca7e}</UniqueIdentifier>
+    </Filter>
+  </ItemGroup>
+</Project>
