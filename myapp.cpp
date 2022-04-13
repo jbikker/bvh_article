@@ -12,10 +12,10 @@ void UpdateNodeBounds( uint nodeIdx );
 
 // minimal structs
 struct Tri { float3 vertex0, vertex1, vertex2; float3 centroid; };
-struct BVHNode
+__declspec(align(32)) struct BVHNode
 {
 	float3 aabbMin, aabbMax;
-	uint leftNode, firstTriIdx, triCount;
+	uint leftFirst, triCount;
 	bool isLeaf() { return triCount > 0; }
 };
 struct Ray { float3 O, D; float t = 1e30f; };
@@ -64,12 +64,12 @@ void IntersectBVH( Ray& ray, const uint nodeIdx )
 	if (node.isLeaf())
 	{
 		for (uint i = 0; i < node.triCount; i++ )
-			IntersectTri( ray, tri[triIdx[node.firstTriIdx + i]] );
+			IntersectTri( ray, tri[triIdx[node.leftFirst + i]] );
 	}
 	else
 	{
-		IntersectBVH( ray, node.leftNode );
-		IntersectBVH( ray, node.leftNode + 1 );
+		IntersectBVH( ray, node.leftFirst );
+		IntersectBVH( ray, node.leftFirst + 1 );
 	}
 }
 
@@ -82,7 +82,7 @@ void BuildBVH()
 		tri[i].centroid = (tri[i].vertex0 + tri[i].vertex1 + tri[i].vertex2) * 0.3333f;
 	// assign all triangles to root node
 	BVHNode& root = bvhNode[rootNodeIdx];
-	root.firstTriIdx = 0, root.triCount = N;
+	root.leftFirst = 0, root.triCount = N;
 	UpdateNodeBounds( rootNodeIdx );
 	// subdivide recursively
 	Subdivide( rootNodeIdx );
@@ -93,7 +93,7 @@ void UpdateNodeBounds( uint nodeIdx )
 	BVHNode& node = bvhNode[nodeIdx];
 	node.aabbMin = float3( 1e30f );
 	node.aabbMax = float3( -1e30f );
-	for (uint first = node.firstTriIdx, i = 0; i < node.triCount; i++)
+	for (uint first = node.leftFirst, i = 0; i < node.triCount; i++)
 	{
 		uint leafTriIdx = triIdx[first + i];
 		Tri& leafTri = tri[leafTriIdx];
@@ -118,7 +118,7 @@ void Subdivide( uint nodeIdx )
 	if (extent.z > extent[axis]) axis = 2;
 	float splitPos = node.aabbMin[axis] + extent[axis] * 0.5f;
 	// in-place partition
-	int i = node.firstTriIdx;
+	int i = node.leftFirst;
 	int j = i + node.triCount - 1;
 	while (i <= j)
 	{
@@ -128,16 +128,16 @@ void Subdivide( uint nodeIdx )
 			swap( triIdx[i], triIdx[j--] );
 	}
 	// abort split if one of the sides is empty
-	int leftCount = i - node.firstTriIdx;
+	int leftCount = i - node.leftFirst;
 	if (leftCount == 0 || leftCount == node.triCount) return;
 	// create child nodes
 	int leftChildIdx = nodesUsed++;
 	int rightChildIdx = nodesUsed++;
-	node.leftNode = leftChildIdx;
-	bvhNode[leftChildIdx].firstTriIdx = node.firstTriIdx;
+	bvhNode[leftChildIdx].leftFirst = node.leftFirst;
 	bvhNode[leftChildIdx].triCount = leftCount;
-	bvhNode[rightChildIdx].firstTriIdx = i;
+	bvhNode[rightChildIdx].leftFirst = i;
 	bvhNode[rightChildIdx].triCount = node.triCount - leftCount;
+	node.leftFirst = leftChildIdx;
 	node.triCount = 0;
 	UpdateNodeBounds( leftChildIdx );
 	UpdateNodeBounds( rightChildIdx );
@@ -174,7 +174,7 @@ void MyApp::Tick( float deltaTime )
 		ray.O = float3( 0, 0, -18 );
 		ray.D = normalize( pixelPos - ray.O );
 		ray.t = 1e30f;
-	#if 1
+	#if 0
 		for( int i = 0; i < N; i++ ) IntersectTri( ray, tri[i] );
 	#else
 		IntersectBVH( ray, rootNodeIdx );
