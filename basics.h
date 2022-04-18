@@ -3,7 +3,7 @@
 namespace Tmpl8
 {
 
-class MyApp : public TheApp
+class BasicBVHApp : public TheApp
 {
 public:
 	// game flow methods

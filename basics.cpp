@@ -1,7 +1,16 @@
 #include "precomp.h"
-#include "myapp.h"
+#include "basics.h"
 
-TheApp* CreateApp() { return new MyApp(); }
+// THIS SOURCE FILE:
+// Code for the article "How to Build a BVH", part 1: basics. Link:
+// https://jacco.ompf2.com/2022/04/13/how-to-build-a-bvh-part-1-basics
+// This is bare-bones BVH construction and traversal code, running in
+// a minimalistic framework.
+// Feel free to copy this code to your own framework. Absolutely no
+// rights are reserved. No responsibility is accepted either.
+// For updates, follow me on twitter: @j_bikker.
+
+TheApp* CreateApp() { return new BasicBVHApp(); }
 
 // triangle count
 #define N	64
@@ -146,7 +155,7 @@ void Subdivide( uint nodeIdx )
 	Subdivide( rightChildIdx );
 }
 
-void MyApp::Init()
+void BasicBVHApp::Init()
 {
 	// intialize a scene with N random triangles
 	for (int i = 0; i < N; i++)
@@ -161,7 +170,7 @@ void MyApp::Init()
 	BuildBVH();
 }
 
-void MyApp::Tick( float deltaTime )
+void BasicBVHApp::Tick( float deltaTime )
 {
 	// draw the scene
 	screen->Clear( 0 );
@@ -184,3 +193,5 @@ void MyApp::Tick( float deltaTime )
 	float elapsed = t.elapsed() * 1000;
 	printf( "tracing time: %.2fms (%5.2fK rays/s)\n", elapsed, sqr( 630 ) / elapsed );
 }
+
+// EOF

@@ -11,8 +11,8 @@
     </ProjectConfiguration>
   </ItemGroup>
   <PropertyGroup Label="Globals">
-    <ProjectName>bvhdemo</ProjectName>
-    <ProjectGuid>{1B482D44-6893-42E7-ADF6-E497E4FCE916}</ProjectGuid>
+    <ProjectName>1. basics</ProjectName>
+    <ProjectGuid>{7A5AC625-9ABC-4421-B1C0-54C9AE2C5835}</ProjectGuid>
     <RootNamespace>Tmpl8</RootNamespace>
     <Keyword>Win32Proj</Keyword>
     <WindowsTargetPlatformVersion>10.0</WindowsTargetPlatformVersion>
@@ -121,7 +121,7 @@
   </ItemDefinitionGroup>
   <!-- END Custom section -->
   <ItemGroup>
-    <ClCompile Include="myapp.cpp" />
+    <ClCompile Include="basics.cpp" />
     <ClCompile Include="template\template.cpp">
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">Create</PrecompiledHeader>
       <PrecompiledHeaderFile Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">precomp.h</PrecompiledHeaderFile>
@@ -131,7 +131,7 @@
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="cl\tools.cl" />
-    <ClInclude Include="myapp.h" />
+    <ClInclude Include="basics.h" />
     <ClInclude Include="template\common.h" />
     <ClInclude Include="template\precomp.h" />
   </ItemGroup>
