@@ -1,22 +1,25 @@
 #include "precomp.h"
-#include "faster.h"
+#include "quickbuild.h"
 
 // THIS SOURCE FILE:
-// Code for the article "How to Build a BVH", part 2: faster rays.
-// This version improves ray traversal speed using ordered traversal
-// and better split plane orientation / positions based on the SAH
-// (Surface Area Heuristic).
+// Code for the article "How to Build a BVH", part 3: quick BVH builds.
+// This version improves BVH construction speed using binned SAH
+// construction, heavily based on a 2007 paper by Ingo Wald:
+// On fast Construction of SAH-based Bounding Volume Hierarchies
 // Feel free to copy this code to your own framework. Absolutely no
 // rights are reserved. No responsibility is accepted either.
 // For updates, follow me on twitter: @j_bikker.
 
-TheApp* CreateApp() { return new FasterRaysApp(); }
+TheApp* CreateApp() { return new QuickBuildApp(); }
 
 // enable the use of SSE in the AABB intersection function
 #define USE_SSE
 
 // triangle count
 #define N	12582 // hardcoded for the unity vehicle mesh
+
+// bin count
+#define BINS 8
 
 // forward declarations
 void Subdivide( uint nodeIdx );
@@ -34,12 +37,14 @@ struct aabb
 {
 	float3 bmin = 1e30f, bmax = -1e30f;
 	void grow( float3 p ) { bmin = fminf( bmin, p ); bmax = fmaxf( bmax, p ); }
+	void grow( aabb& b ) { if (b.bmin.x != 1e30f) { grow( b.bmin ); grow( b.bmax ); } }
 	float area()
 	{
 		float3 e = bmax - bmin; // box extent
 		return e.x * e.y + e.y * e.z + e.z * e.x;
 	}
 };
+struct Bin { aabb bounds; int triCount = 0; };
 __declspec(align(64)) struct Ray
 {
 	union { struct { float3 O; float dummy1; }; __m128 O4; };
@@ -168,31 +173,64 @@ void UpdateNodeBounds( uint nodeIdx )
 	}
 }
 
-float EvaluateSAH( BVHNode& node, int axis, float pos )
+float FindBestSplitPlane( BVHNode& node, int& axis, float& splitPos )
 {
-	// determine triangle counts and bounds for this split candidate
-	aabb leftBox, rightBox;
-	int leftCount = 0, rightCount = 0;
-	for (uint i = 0; i < node.triCount; i++)
+	float bestCost = 1e30f;
+	for (int a = 0; a < 3; a++)
 	{
-		Tri& triangle = tri[triIdx[node.leftFirst + i]];
-		if (triangle.centroid[axis] < pos)
+		float boundsMin = 1e30f, boundsMax = -1e30f;
+		for (int i = 0; i < node.triCount; i++)
 		{
-			leftCount++;
-			leftBox.grow( triangle.vertex0 );
-			leftBox.grow( triangle.vertex1 );
-			leftBox.grow( triangle.vertex2 );
+			Tri& triangle = tri[triIdx[node.leftFirst + i]];
+			boundsMin = min( boundsMin, triangle.centroid[a] );
+			boundsMax = max( boundsMax, triangle.centroid[a] );
 		}
-		else
+		if (boundsMin == boundsMax) continue;
+		// populate the bins
+		Bin bin[BINS];
+		float scale = BINS / (boundsMax - boundsMin);
+		for (uint i = 0; i < node.triCount; i++)
 		{
-			rightCount++;
-			rightBox.grow( triangle.vertex0 );
-			rightBox.grow( triangle.vertex1 );
-			rightBox.grow( triangle.vertex2 );
+			Tri& triangle = tri[triIdx[node.leftFirst + i]];
+			int binIdx = min( BINS - 1, (int)((triangle.centroid[a] - boundsMin) * scale) );
+			bin[binIdx].triCount++;
+			bin[binIdx].bounds.grow( triangle.vertex0 );
+			bin[binIdx].bounds.grow( triangle.vertex1 );
+			bin[binIdx].bounds.grow( triangle.vertex2 );
+		}
+		// gather data for the 7 planes between the 8 bins
+		float leftArea[BINS - 1], rightArea[BINS - 1];
+		int leftCount[BINS - 1], rightCount[BINS - 1];
+		aabb leftBox, rightBox;
+		int leftSum = 0, rightSum = 0;
+		for (int i = 0; i < BINS - 1; i++)
+		{
+			leftSum += bin[i].triCount;
+			leftCount[i] = leftSum;
+			leftBox.grow( bin[i].bounds );
+			leftArea[i] = leftBox.area();
+			rightSum += bin[BINS - 1 - i].triCount;
+			rightCount[BINS - 2 - i] = rightSum;
+			rightBox.grow( bin[BINS - 1 - i].bounds );
+			rightArea[BINS - 2 - i] = rightBox.area();
+		}
+		// calculate SAH cost for the 7 planes
+		scale = (boundsMax - boundsMin) / BINS;
+		for (int i = 0; i < BINS - 1; i++)
+		{
+			float planeCost = leftCount[i] * leftArea[i] + rightCount[i] * rightArea[i];
+			if (planeCost < bestCost)
+				axis = a, splitPos = boundsMin + scale * (i + 1), bestCost = planeCost;
 		}
 	}
-	float cost = leftCount * leftBox.area() + rightCount * rightBox.area();
-	return cost > 0 ? cost : 1e30f;
+	return bestCost;
+}
+
+float CalculateNodeCost( BVHNode& node )
+{
+	float3 e = node.aabbMax - node.aabbMin; // extent of the node
+	float surfaceArea = e.x * e.y + e.y * e.z + e.z * e.x;
+	return node.triCount * surfaceArea;
 }
 
 void Subdivide( uint nodeIdx )
@@ -200,22 +238,11 @@ void Subdivide( uint nodeIdx )
 	// terminate recursion
 	BVHNode& node = bvhNode[nodeIdx];
 	// determine split axis using SAH
-	int bestAxis = -1;
-	float bestPos = 0, bestCost = 1e30f;
-	for (int axis = 0; axis < 3; axis++) for (uint i = 0; i < node.triCount; i++)
-	{
-		Tri& triangle = tri[triIdx[node.leftFirst + i]];
-		float candidatePos = triangle.centroid[axis];
-		float cost = EvaluateSAH( node, axis, candidatePos );
-		if (cost < bestCost)
-			bestPos = candidatePos, bestAxis = axis, bestCost = cost;
-	}
-	int axis = bestAxis;
-	float splitPos = bestPos;
-	float3 e = node.aabbMax - node.aabbMin; // extent of parent
-	float parentArea = e.x * e.y + e.y * e.z + e.z * e.x;
-	float parentCost = node.triCount * parentArea;
-	if (bestCost >= parentCost) return;
+	int axis;
+	float splitPos;
+	float splitCost = FindBestSplitPlane( node, axis, splitPos );
+	float nosplitCost = CalculateNodeCost( node );
+	if (splitCost >= nosplitCost) return;
 	// in-place partition
 	int i = node.leftFirst;
 	int j = i + node.triCount - 1;
@@ -245,24 +272,18 @@ void Subdivide( uint nodeIdx )
 	Subdivide( rightChildIdx );
 }
 
-void FasterRaysApp::Init()
+void QuickBuildApp::Init()
 {
 	FILE* file = fopen( "assets/unity.tri", "r" );
-	float a, b, c, d, e, f, g, h, i;
 	for (int t = 0; t < N; t++)
-	{
 		fscanf( file, "%f %f %f %f %f %f %f %f %f\n",
-			&a, &b, &c, &d, &e, &f, &g, &h, &i );
-		tri[t].vertex0 = float3( a, b, c );
-		tri[t].vertex1 = float3( d, e, f );
-		tri[t].vertex2 = float3( g, h, i );
-	}
-	fclose( file );
-	// construct the BVH
+			&tri[t].vertex0.x, &tri[t].vertex0.y, &tri[t].vertex0.z,
+			&tri[t].vertex1.x, &tri[t].vertex1.y, &tri[t].vertex1.z,
+			&tri[t].vertex2.x, &tri[t].vertex2.y, &tri[t].vertex2.z );
 	BuildBVH();
 }
 
-void FasterRaysApp::Tick( float deltaTime )
+void QuickBuildApp::Tick( float deltaTime )
 {
 	// draw the scene
 	screen->Clear( 0 );
