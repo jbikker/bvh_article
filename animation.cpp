@@ -110,6 +110,27 @@ void IntersectBVH( Ray& ray )
 	}
 }
 
+void RefitBVH()
+{
+	Timer t;
+	for (int i = nodesUsed - 1; i >= 0; i--) if (i != 1)
+	{
+		BVHNode& node = bvhNode[i];
+		if (node.isLeaf())
+		{
+			// leaf node: adjust bounds to contained triangles
+			UpdateNodeBounds( i );
+			continue;
+		}
+		// interior node: adjust bounds to child node bounds
+		BVHNode& leftChild = bvhNode[node.leftFirst];
+		BVHNode& rightChild = bvhNode[node.leftFirst + 1];
+		node.aabbMin = fminf( leftChild.aabbMin, rightChild.aabbMin );
+		node.aabbMax = fmaxf( leftChild.aabbMax, rightChild.aabbMax );
+	}
+	printf( "BVH refitted in %.2fms  ", t.elapsed() * 1000 );
+}
+
 void BuildBVH()
 {
 	// reset node pool
@@ -252,7 +273,7 @@ void Animate()
 	r += 0.05f;
 	if (r > 2 * PI) r -= 2 * PI;
 	float a = sinf( r ) * 0.5f;
-	for( int i = 0; i < N; i++ ) for( int j = 0; j < 3; j++ )
+	for (int i = 0; i < N; i++) for (int j = 0; j < 3; j++)
 	{
 		float3 o = (&original[i].vertex0)[j];
 		float s = a * (o.y - 0.2f) * 0.2f;
@@ -269,12 +290,15 @@ void AnimationApp::Init()
 		&original[t].vertex0.x, &original[t].vertex0.y, &original[t].vertex0.z,
 		&original[t].vertex1.x, &original[t].vertex1.y, &original[t].vertex1.z,
 		&original[t].vertex2.x, &original[t].vertex2.y, &original[t].vertex2.z );
+	Animate();
+	BuildBVH();
 }
 
 void AnimationApp::Tick( float deltaTime )
 {
 	Animate();
-	BuildBVH();
+	// BuildBVH();
+	RefitBVH();
 	// draw the scene
 	float3 p0( -1, 1, 2 ), p1( 1, 1, 2 ), p2( -1, -1, 2 );
 	Timer t;
@@ -287,8 +311,8 @@ void AnimationApp::Tick( float deltaTime )
 		ray.dummy1 = ray.dummy2 = ray.dummy3 = 1;
 		for (int v = 0; v < 8; v++) for (int u = 0; u < 8; u++)
 		{
-			float3 pixelPos = ray.O + p0 + 
-				(p1 - p0) * ((x * 8 + u) / 640.0f) + 
+			float3 pixelPos = ray.O + p0 +
+				(p1 - p0) * ((x * 8 + u) / 640.0f) +
 				(p2 - p0) * ((y * 8 + v) / 640.0f);
 			ray.D = normalize( pixelPos - ray.O ), ray.t = 1e30f;
 			ray.rD = float3( 1 / ray.D.x, 1 / ray.D.y, 1 / ray.D.z );
