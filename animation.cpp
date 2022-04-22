@@ -28,9 +28,9 @@ void Subdivide( uint nodeIdx );
 void UpdateNodeBounds( uint nodeIdx );
 
 // application data
-Tri tri[N];
+Tri tri[N], original[N];
 uint triIdx[N];
-BVHNode* bvhNode = 0;
+BVHNode* bvhNode = (BVHNode*)_aligned_malloc( sizeof( BVHNode ) * N * 2, 64 );
 uint rootNodeIdx = 0, nodesUsed = 2;
 
 // functions
@@ -112,8 +112,8 @@ void IntersectBVH( Ray& ray )
 
 void BuildBVH()
 {
-	// create the BVH node pool
-	bvhNode = (BVHNode*)_aligned_malloc( sizeof( BVHNode ) * N * 2, 64 );
+	// reset node pool
+	nodesUsed = 2;
 	// populate triangle index array
 	for (int i = 0; i < N; i++) triIdx[i] = i;
 	// calculate triangle centroids for partitioning
@@ -126,7 +126,7 @@ void BuildBVH()
 	// subdivide recursively
 	Timer t;
 	Subdivide( rootNodeIdx );
-	printf( "BVH (%i nodes) constructed in %.2fms.\n", nodesUsed, t.elapsed() * 1000 );
+	printf( "BVH constructed in %.2fms  ", t.elapsed() * 1000 );
 }
 
 void UpdateNodeBounds( uint nodeIdx )
@@ -246,19 +246,35 @@ void Subdivide( uint nodeIdx )
 	Subdivide( rightChildIdx );
 }
 
+void Animate()
+{
+	static float r = 0;
+	r += 0.05f;
+	if (r > 2 * PI) r -= 2 * PI;
+	float a = sinf( r ) * 0.5f;
+	for( int i = 0; i < N; i++ ) for( int j = 0; j < 3; j++ )
+	{
+		float3 o = (&original[i].vertex0)[j];
+		float s = a * (o.y - 0.2f) * 0.2f;
+		float x = o.x * cosf( s ) - o.y * sinf( s );
+		float y = o.x * sinf( s ) + o.y * cosf( s );
+		(&tri[i].vertex0)[j] = float3( x, y, o.z );
+	}
+}
+
 void AnimationApp::Init()
 {
 	FILE* file = fopen( "assets/bigben.tri", "r" );
-	for (int t = 0; t < N; t++)
-		fscanf( file, "%f %f %f %f %f %f %f %f %f\n",
-			&tri[t].vertex0.x, &tri[t].vertex0.y, &tri[t].vertex0.z,
-			&tri[t].vertex1.x, &tri[t].vertex1.y, &tri[t].vertex1.z,
-			&tri[t].vertex2.x, &tri[t].vertex2.y, &tri[t].vertex2.z );
-	BuildBVH();
+	for (int t = 0; t < N; t++) fscanf( file, "%f %f %f %f %f %f %f %f %f\n",
+		&original[t].vertex0.x, &original[t].vertex0.y, &original[t].vertex0.z,
+		&original[t].vertex1.x, &original[t].vertex1.y, &original[t].vertex1.z,
+		&original[t].vertex2.x, &original[t].vertex2.y, &original[t].vertex2.z );
 }
 
 void AnimationApp::Tick( float deltaTime )
 {
+	Animate();
+	BuildBVH();
 	// draw the scene
 	float3 p0( -1, 1, 2 ), p1( 1, 1, 2 ), p2( -1, -1, 2 );
 	Timer t;
@@ -277,7 +293,7 @@ void AnimationApp::Tick( float deltaTime )
 			ray.D = normalize( pixelPos - ray.O ), ray.t = 1e30f;
 			ray.rD = float3( 1 / ray.D.x, 1 / ray.D.y, 1 / ray.D.z );
 			IntersectBVH( ray );
-			uint c = ray.t < 1e30f ? (255 - (int)((ray.t - 4) * 200)) : 0;
+			uint c = ray.t < 1e30f ? (255 - (int)((ray.t - 4) * 180)) : 0;
 			screen->Plot( x * 8 + u, y * 8 + v, c * 0x10101 );
 		}
 	}
