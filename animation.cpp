@@ -1,22 +1,24 @@
 #include "precomp.h"
-#include "quickbuild.h"
+#include "animation.h"
+
+// UNDER CONSTRUCTION - ARTICLE IS BEING WRITTEN
 
 // THIS SOURCE FILE:
-// Code for the article "How to Build a BVH", part 3: quick BVH builds.
-// This version improves BVH construction speed using binned SAH
-// construction, heavily based on a 2007 paper by Ingo Wald:
-// On fast Construction of SAH-based Bounding Volume Hierarchies
+// Code for the article "How to Build a BVH", part 4: animation.
+// This version shows how to ray trace an animated mesh using
+// two methods: rebuilding and refitting. The refitting method is
+// good for changes that do not change the topology of the mesh.
 // Feel free to copy this code to your own framework. Absolutely no
 // rights are reserved. No responsibility is accepted either.
 // For updates, follow me on twitter: @j_bikker.
 
-TheApp* CreateApp() { return new QuickBuildApp(); }
+TheApp* CreateApp() { return new AnimationApp(); }
 
 // enable the use of SSE in the AABB intersection function
 #define USE_SSE
 
 // triangle count
-#define N	12582 // hardcoded for the unity vehicle mesh
+#define N	20944 // hardcoded for the big-ben mesh
 
 // bin count
 #define BINS 8
@@ -24,34 +26,6 @@ TheApp* CreateApp() { return new QuickBuildApp(); }
 // forward declarations
 void Subdivide( uint nodeIdx );
 void UpdateNodeBounds( uint nodeIdx );
-
-// minimal structs
-struct Tri { float3 vertex0, vertex1, vertex2; float3 centroid; };
-struct BVHNode
-{
-	union { struct { float3 aabbMin; uint leftFirst; }; __m128 aabbMin4; };
-	union { struct { float3 aabbMax; uint triCount; }; __m128 aabbMax4; };
-	bool isLeaf() { return triCount > 0; }
-};
-struct aabb
-{
-	float3 bmin = 1e30f, bmax = -1e30f;
-	void grow( float3 p ) { bmin = fminf( bmin, p ); bmax = fmaxf( bmax, p ); }
-	void grow( aabb& b ) { if (b.bmin.x != 1e30f) { grow( b.bmin ); grow( b.bmax ); } }
-	float area()
-	{
-		float3 e = bmax - bmin; // box extent
-		return e.x * e.y + e.y * e.z + e.z * e.x;
-	}
-};
-struct Bin { aabb bounds; int triCount = 0; };
-__declspec(align(64)) struct Ray
-{
-	union { struct { float3 O; float dummy1; }; __m128 O4; };
-	union { struct { float3 D; float dummy2; }; __m128 D4; };
-	union { struct { float3 rD; float dummy3; }; __m128 rD4; };
-	float t = 1e30f;
-};
 
 // application data
 Tri tri[N];
@@ -272,9 +246,9 @@ void Subdivide( uint nodeIdx )
 	Subdivide( rightChildIdx );
 }
 
-void QuickBuildApp::Init()
+void AnimationApp::Init()
 {
-	FILE* file = fopen( "assets/unity.tri", "r" );
+	FILE* file = fopen( "assets/bigben.tri", "r" );
 	for (int t = 0; t < N; t++)
 		fscanf( file, "%f %f %f %f %f %f %f %f %f\n",
 			&tri[t].vertex0.x, &tri[t].vertex0.y, &tri[t].vertex0.z,
@@ -283,25 +257,28 @@ void QuickBuildApp::Init()
 	BuildBVH();
 }
 
-void QuickBuildApp::Tick( float deltaTime )
+void AnimationApp::Tick( float deltaTime )
 {
 	// draw the scene
-	screen->Clear( 0 );
 	float3 p0( -1, 1, 2 ), p1( 1, 1, 2 ), p2( -1, -1, 2 );
-	Ray ray;
-	ray.dummy1 = ray.dummy2 = ray.dummy3 = 1;
 	Timer t;
-	for (int y = 0; y < 640; y += 4) for (int x = 0; x < 640; x += 4)
+#pragma omp parallel for schedule(dynamic)
+	for (int tile = 0; tile < 6400; tile++)
 	{
-		for (int v = 0; v < 4; v++) for (int u = 0; u < 4; u++)
+		int x = tile % 80, y = tile / 80;
+		Ray ray;
+		ray.O = float3( 0, 3.5f, -4.5f );
+		ray.dummy1 = ray.dummy2 = ray.dummy3 = 1;
+		for (int v = 0; v < 8; v++) for (int u = 0; u < 8; u++)
 		{
-			ray.O = float3( -1.5f, -0.2f, -2.5f );
-			float3 pixelPos = ray.O + p0 + (p1 - p0) * ((x + u) / 640.0f) + (p2 - p0) * ((y + v) / 640.0f);
+			float3 pixelPos = ray.O + p0 + 
+				(p1 - p0) * ((x * 8 + u) / 640.0f) + 
+				(p2 - p0) * ((y * 8 + v) / 640.0f);
 			ray.D = normalize( pixelPos - ray.O ), ray.t = 1e30f;
 			ray.rD = float3( 1 / ray.D.x, 1 / ray.D.y, 1 / ray.D.z );
 			IntersectBVH( ray );
-			uint c = 500 - (int)(ray.t * 42);
-			if (ray.t < 1e30f) screen->Plot( x + u, y + v, c * 0x10101 );
+			uint c = ray.t < 1e30f ? (255 - (int)((ray.t - 4) * 200)) : 0;
+			screen->Plot( x * 8 + u, y * 8 + v, c * 0x10101 );
 		}
 	}
 	float elapsed = t.elapsed() * 1000;
