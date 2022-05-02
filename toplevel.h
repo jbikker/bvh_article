@@ -1,10 +1,26 @@
 #pragma once
 
+// enable the use of SSE in the AABB intersection function
+#define USE_SSE
+
+// bin count
+#define BINS 8
+
 namespace Tmpl8
 {
 
 // minimalist triangle struct
 struct Tri { float3 vertex0, vertex1, vertex2; float3 centroid; };
+
+// ray struct, prepared for SIMD AABB intersection
+__declspec(align(64)) struct Ray
+{
+	Ray() { O4 = D4 = rD4 = _mm_set1_ps( 1 ); }
+	union { struct { float3 O; float dummy1; }; __m128 O4; };
+	union { struct { float3 D; float dummy2; }; __m128 D4; };
+	union { struct { float3 rD; float dummy3; }; __m128 rD4; };
+	float t = 1e30f;
+};
 
 // 32-byte BVH node struct
 struct BVHNode
@@ -12,6 +28,30 @@ struct BVHNode
 	union { struct { float3 aabbMin; uint leftFirst; }; __m128 aabbMin4; };
 	union { struct { float3 aabbMax; uint triCount; }; __m128 aabbMax4; };
 	bool isLeaf() { return triCount > 0; }
+	float CalculateNodeCost()
+	{
+		float3 e = aabbMax - aabbMin; // extent of the node
+		return (e.x * e.y + e.y * e.z + e.z * e.x) * triCount;
+	}
+};
+
+// bvh 
+class BVH
+{
+public:
+	BVH() = default;
+	BVH( char* triFile, int N );
+	void BuildBVH();
+	void RefitBVH();
+	void Intersect( Ray& ray );
+private:
+	void Subdivide( uint nodeIdx );
+	void UpdateNodeBounds( uint nodeIdx );
+	float FindBestSplitPlane( BVHNode& node, int& axis, float& splitPos );
+	BVHNode* bvhNode = 0;
+	Tri* tri = 0;
+	uint* triIdx = 0;
+	uint nodesUsed, triCount;
 };
 
 // minimalist AABB struct with grow functionality
@@ -27,21 +67,8 @@ struct aabb
 	}
 };
 
-// bin struct for binned BVH building
-struct Bin { aabb bounds; int triCount = 0; };
-
-// ray struct, prepared for SIMD AABB intersection
-__declspec(align(64)) struct Ray
-{
-	Ray() { O4 = D4 = rD4 = _mm_set1_ps( 1 ); }
-	union { struct { float3 O; float dummy1; }; __m128 O4; };
-	union { struct { float3 D; float dummy2; }; __m128 D4; };
-	union { struct { float3 rD; float dummy3; }; __m128 rD4; };
-	float t = 1e30f;
-};
-
 // game class
-class AnimationApp : public TheApp
+class TopLevelApp : public TheApp
 {
 public:
 	// game flow methods

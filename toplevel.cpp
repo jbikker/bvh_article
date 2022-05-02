@@ -1,35 +1,21 @@
 #include "precomp.h"
-#include "animation.h"
+#include "toplevel.h"
+
+// UNDER CONSTRUCTION - ARTICLE IS BEING WRITTEN
 
 // THIS SOURCE FILE:
-// Code for the article "How to Build a BVH", part 4: animation.
-// This version shows how to ray trace an animated mesh using
-// two methods: rebuilding and refitting. The refitting method is
-// good for changes that do not change the topology of the mesh.
+// Code for the article "How to Build a BVH", part 5: top-level.
+// This version shows how to build and maintain a BVH using
+// a TLAS (top level acceleration structure) over a collection of
+// BLAS'es (bottom level accstructs).
 // Feel free to copy this code to your own framework. Absolutely no
 // rights are reserved. No responsibility is accepted either.
 // For updates, follow me on twitter: @j_bikker.
 
-TheApp* CreateApp() { return new AnimationApp(); }
-
-// enable the use of SSE in the AABB intersection function
-#define USE_SSE
-
-// triangle count
-#define N	20944 // hardcoded for the big-ben mesh
-
-// bin count
-#define BINS 8
-
-// forward declarations
-void Subdivide( uint nodeIdx );
-void UpdateNodeBounds( uint nodeIdx );
+TheApp* CreateApp() { return new TopLevelApp(); }
 
 // application data
-Tri tri[N], original[N];
-uint triIdx[N];
-BVHNode* bvhNode = (BVHNode*)_aligned_malloc( sizeof( BVHNode ) * N * 2, 64 );
-uint rootNodeIdx = 0, nodesUsed = 2;
+BVH bvh;
 
 // functions
 
@@ -73,9 +59,25 @@ float IntersectAABB_SSE( const Ray& ray, const __m128& bmin4, const __m128& bmax
 	if (tmax >= tmin && tmin < ray.t && tmax > 0) return tmin; else return 1e30f;
 }
 
-void IntersectBVH( Ray& ray )
+// BVH class implementation
+
+BVH::BVH( char* triFile, int N )
 {
-	BVHNode* node = &bvhNode[rootNodeIdx], * stack[64];
+	FILE* file = fopen( triFile, "r" );
+	triCount = N;
+	tri = new Tri[N];
+	for (int t = 0; t < N; t++) fscanf( file, "%f %f %f %f %f %f %f %f %f\n",
+		&tri[t].vertex0.x, &tri[t].vertex0.y, &tri[t].vertex0.z,
+		&tri[t].vertex1.x, &tri[t].vertex1.y, &tri[t].vertex1.z,
+		&tri[t].vertex2.x, &tri[t].vertex2.y, &tri[t].vertex2.z );
+	bvhNode = (BVHNode*)_aligned_malloc( sizeof( BVHNode ) * N * 2, 64 );
+	triIdx = new uint[N];
+	BuildBVH();
+}
+
+void BVH::Intersect( Ray& ray )
+{
+	BVHNode* node = &bvhNode[0], * stack[64];
 	uint stackPtr = 0;
 	while (1)
 	{
@@ -108,7 +110,7 @@ void IntersectBVH( Ray& ray )
 	}
 }
 
-void RefitBVH()
+void BVH::RefitBVH()
 {
 	Timer t;
 	for (int i = nodesUsed - 1; i >= 0; i--) if (i != 1)
@@ -129,26 +131,26 @@ void RefitBVH()
 	printf( "BVH refitted in %.2fms  ", t.elapsed() * 1000 );
 }
 
-void BuildBVH()
+void BVH::BuildBVH()
 {
 	// reset node pool
 	nodesUsed = 2;
 	// populate triangle index array
-	for (int i = 0; i < N; i++) triIdx[i] = i;
+	for (uint i = 0; i < triCount; i++) triIdx[i] = i;
 	// calculate triangle centroids for partitioning
-	for (int i = 0; i < N; i++)
+	for (uint i = 0; i < triCount; i++)
 		tri[i].centroid = (tri[i].vertex0 + tri[i].vertex1 + tri[i].vertex2) * 0.3333f;
 	// assign all triangles to root node
-	BVHNode& root = bvhNode[rootNodeIdx];
-	root.leftFirst = 0, root.triCount = N;
-	UpdateNodeBounds( rootNodeIdx );
+	BVHNode& root = bvhNode[0];
+	root.leftFirst = 0, root.triCount = triCount;
+	UpdateNodeBounds( 0 );
 	// subdivide recursively
 	Timer t;
-	Subdivide( rootNodeIdx );
+	Subdivide( 0 );
 	printf( "BVH constructed in %.2fms  ", t.elapsed() * 1000 );
 }
 
-void UpdateNodeBounds( uint nodeIdx )
+void BVH::UpdateNodeBounds( uint nodeIdx )
 {
 	BVHNode& node = bvhNode[nodeIdx];
 	node.aabbMin = float3( 1e30f );
@@ -166,7 +168,7 @@ void UpdateNodeBounds( uint nodeIdx )
 	}
 }
 
-float FindBestSplitPlane( BVHNode& node, int& axis, float& splitPos )
+float BVH::FindBestSplitPlane( BVHNode& node, int& axis, float& splitPos )
 {
 	float bestCost = 1e30f;
 	for (int a = 0; a < 3; a++)
@@ -180,7 +182,7 @@ float FindBestSplitPlane( BVHNode& node, int& axis, float& splitPos )
 		}
 		if (boundsMin == boundsMax) continue;
 		// populate the bins
-		Bin bin[BINS];
+		struct Bin { aabb bounds; int triCount = 0; } bin[BINS];
 		float scale = BINS / (boundsMax - boundsMin);
 		for (uint i = 0; i < node.triCount; i++)
 		{
@@ -219,14 +221,7 @@ float FindBestSplitPlane( BVHNode& node, int& axis, float& splitPos )
 	return bestCost;
 }
 
-float CalculateNodeCost( BVHNode& node )
-{
-	float3 e = node.aabbMax - node.aabbMin; // extent of the node
-	float surfaceArea = e.x * e.y + e.y * e.z + e.z * e.x;
-	return node.triCount * surfaceArea;
-}
-
-void Subdivide( uint nodeIdx )
+void BVH::Subdivide( uint nodeIdx )
 {
 	// terminate recursion
 	BVHNode& node = bvhNode[nodeIdx];
@@ -234,7 +229,7 @@ void Subdivide( uint nodeIdx )
 	int axis;
 	float splitPos;
 	float splitCost = FindBestSplitPlane( node, axis, splitPos );
-	float nosplitCost = CalculateNodeCost( node );
+	float nosplitCost = node.CalculateNodeCost();
 	if (splitCost >= nosplitCost) return;
 	// in-place partition
 	int i = node.leftFirst;
@@ -265,37 +260,15 @@ void Subdivide( uint nodeIdx )
 	Subdivide( rightChildIdx );
 }
 
-void Animate()
+// TopLevelApp implementation
+
+void TopLevelApp::Init()
 {
-	static float r = 0;
-	if ((r += 0.05f) > 2 * PI) r -= 2 * PI;
-	float a = sinf( r ) * 0.5f;
-	for (int i = 0; i < N; i++) for (int j = 0; j < 3; j++)
-	{
-		float3 o = (&original[i].vertex0)[j];
-		float s = a * (o.y - 0.2f) * 0.2f;
-		float x = o.x * cosf( s ) - o.y * sinf( s );
-		float y = o.x * sinf( s ) + o.y * cosf( s );
-		(&tri[i].vertex0)[j] = float3( x, y, o.z );
-	}
+	bvh = BVH( "assets/bigben.tri", 20944 );
 }
 
-void AnimationApp::Init()
+void TopLevelApp::Tick( float deltaTime )
 {
-	FILE* file = fopen( "assets/bigben.tri", "r" );
-	for (int t = 0; t < N; t++) fscanf( file, "%f %f %f %f %f %f %f %f %f\n",
-		&original[t].vertex0.x, &original[t].vertex0.y, &original[t].vertex0.z,
-		&original[t].vertex1.x, &original[t].vertex1.y, &original[t].vertex1.z,
-		&original[t].vertex2.x, &original[t].vertex2.y, &original[t].vertex2.z );
-	Animate();
-	BuildBVH();
-}
-
-void AnimationApp::Tick( float deltaTime )
-{
-	Animate();
-	// BuildBVH();
-	RefitBVH();
 	// draw the scene
 	float3 p0( -1, 1, 2 ), p1( 1, 1, 2 ), p2( -1, -1, 2 );
 	Timer t;
@@ -312,7 +285,7 @@ void AnimationApp::Tick( float deltaTime )
 				(p2 - p0) * ((y * 8 + v) / 640.0f);
 			ray.D = normalize( pixelPos - ray.O ), ray.t = 1e30f;
 			ray.rD = float3( 1 / ray.D.x, 1 / ray.D.y, 1 / ray.D.z );
-			IntersectBVH( ray );
+			bvh.Intersect( ray );
 			uint c = ray.t < 1e30f ? (255 - (int)((ray.t - 4) * 180)) : 0;
 			screen->Plot( x * 8 + u, y * 8 + v, c * 0x10101 );
 		}

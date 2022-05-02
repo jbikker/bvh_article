@@ -47,6 +47,7 @@ struct aabb
 struct Bin { aabb bounds; int triCount = 0; };
 __declspec(align(64)) struct Ray
 {
+	Ray() { O4 = D4 = rD4 = _mm_set1_ps( 1 ); }
 	union { struct { float3 O; float dummy1; }; __m128 O4; };
 	union { struct { float3 D; float dummy2; }; __m128 D4; };
 	union { struct { float3 rD; float dummy3; }; __m128 rD4; };
@@ -289,7 +290,6 @@ void QuickBuildApp::Tick( float deltaTime )
 	screen->Clear( 0 );
 	float3 p0( -1, 1, 2 ), p1( 1, 1, 2 ), p2( -1, -1, 2 );
 	Ray ray;
-	ray.dummy1 = ray.dummy2 = ray.dummy3 = 1;
 	Timer t;
 	for (int y = 0; y < 640; y += 4) for (int x = 0; x < 640; x += 4)
 	{
