@@ -146,52 +146,61 @@ struct ALIGN( 8 ) float2
 	union { struct { float x, y; }; float cell[2]; };
 	float operator [] ( const int n ) const { return cell[n]; }
 };
-struct ALIGN( 16 ) int3 
+struct int3;
+struct ALIGN( 16 ) int4
+{
+	int4() = default;
+	int4( const int a, const int b, const int c, const int d ) : x( a ), y( b ), z( c ), w( d ) {}
+	int4( const int a ) : x( a ), y( a ), z( a ), w( a ) {}
+	int4( const int3& a, const int d );
+	union { struct { int x, y, z, w; }; int cell[4]; };
+	int operator [] ( const int n ) const { return cell[n]; }
+};
+struct ALIGN( 16 ) int3
 { 
 	int3() = default; 
 	int3( const int a, const int b, const int c ) : x( a ), y( b ), z( c ) {} 
 	int3( const int a ) : x( a ), y( a ), z( a ) {}
+	int3( const int4 a ) : x( a.x ), y( a.y ), z( a.z ) {}
 	union { struct { int x, y, z; int dummy; }; int cell[4]; };
 	int operator [] ( const int n ) const { return cell[n]; }
 };
-struct ALIGN( 16 ) uint3 
+struct uint3;
+struct ALIGN( 16 ) uint4
+{
+	uint4() = default;
+	uint4( const uint a, const uint b, const uint c, const uint d ) : x( a ), y( b ), z( c ), w( d ) {}
+	uint4( const uint a ) : x( a ), y( a ), z( a ), w( a ) {}
+	uint4( const uint3& a, const uint d );
+	union { struct { uint x, y, z, w; }; uint cell[4]; };
+	uint operator [] ( const int n ) const { return cell[n]; }
+};
+struct ALIGN( 16 ) uint3
 { 
 	uint3() = default; 
 	uint3( const uint a, const uint b, const uint c ) : x( a ), y( b ), z( c ) {} 
 	uint3( const uint a ) : x( a ), y( a ), z( a ) {}
+	uint3( const uint4 a ) : x( a.x ), y( a.y ), z( a.z ) {}
 	union { struct { uint x, y, z; uint dummy; }; uint cell[4]; };
 	uint operator [] ( const int n ) const { return cell[n]; }
+};
+struct float3;
+struct ALIGN( 16 ) float4
+{
+	float4() = default;
+	float4( const float a, const float b, const float c, const float d ) : x( a ), y( b ), z( c ), w( d ) {}
+	float4( const float a ) : x( a ), y( a ), z( a ), w( a ) {}
+	float4( const float3& a, const float d );
+	union { struct { float x, y, z, w; }; float cell[4]; };
+	float operator [] ( const int n ) const { return cell[n]; }
 };
 struct float3
 {
 	float3() = default;
 	float3( const float a, const float b, const float c ) : x( a ), y( b ), z( c ) {}
 	float3( const float a ) : x( a ), y( a ), z( a ) {}
+	float3( const float4 a ) : x( a.x ), y( a.y ), z( a.z ) {}
 	union { struct { float x, y, z; }; float cell[3]; };
-	float operator [] ( const int n ) const { return cell[n]; }
-};
-struct ALIGN( 16 ) int4
-{
-	int4() = default;
-	int4( const int a, const int b, const int c, const int d ) : x( a ), y( b ), z( c ), w( d ) {}
-	int4( const int a ) : x( a ), y( a ), z( a ), w( a ) {}
-	union { struct { int x, y, z, w; }; int cell[4]; };
-	int operator [] ( const int n ) const { return cell[n]; }
-};
-struct ALIGN( 16 ) uint4 
-{ 
-	uint4() = default;
-	uint4( const uint a, const uint b, const uint c, const uint d ) : x( a ), y( b ), z( c ), w( d ) {}
-	uint4( const uint a ) : x( a ), y( a ), z( a ), w( a ) {}
-	union { struct { uint x, y, z, w; }; uint cell[4]; };
-	uint operator [] ( const int n ) const { return cell[n]; }
-};
-struct ALIGN( 16 ) float4 
-{ 
-	float4() = default;
-	float4( const float a, const float b, const float c, const float d ) : x( a ), y( b ), z( c ), w( d) {}
-	float4( const float a ) : x( a ), y( a ), z( a ), w( a ) {}
-	union { struct { float x, y, z, w; }; float cell[4]; };
 	float operator [] ( const int n ) const { return cell[n]; }
 };
 struct ALIGN( 4 ) uchar4 

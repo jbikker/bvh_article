@@ -14,9 +14,6 @@
 
 TheApp* CreateApp() { return new TopLevelApp(); }
 
-// application data
-BVH bvh;
-
 // functions
 
 void IntersectTri( Ray& ray, const Tri& tri )
@@ -25,7 +22,7 @@ void IntersectTri( Ray& ray, const Tri& tri )
 	const float3 edge2 = tri.vertex2 - tri.vertex0;
 	const float3 h = cross( ray.D, edge2 );
 	const float a = dot( edge1, h );
-	if (a > -0.0001f && a < 0.0001f) return; // ray parallel to triangle
+	if (a > -0.00001f && a < 0.00001f) return; // ray parallel to triangle
 	const float f = 1 / a;
 	const float3 s = ray.O - tri.vertex0;
 	const float u = f * dot( s, h );
@@ -72,11 +69,28 @@ BVH::BVH( char* triFile, int N )
 		&tri[t].vertex2.x, &tri[t].vertex2.y, &tri[t].vertex2.z );
 	bvhNode = (BVHNode*)_aligned_malloc( sizeof( BVHNode ) * N * 2, 64 );
 	triIdx = new uint[N];
-	BuildBVH();
+	Build();
+}
+
+void BVH::SetTransform( mat4& transform )
+{
+	invTransform = transform.Inverted();
+	// calculate world-space bounds using the new matrix
+	float3 bmin = bvhNode[0].aabbMin, bmax = bvhNode[0].aabbMax;
+	bounds = aabb();
+	for( int i = 0; i < 8; i++ ) 
+		bounds.grow( TransformPosition( float3( i & 1 ? bmax.x : bmin.x,
+			i & 2 ? bmax.y : bmin.y, i & 4 ? bmax.z : bmin.z ), transform ) );
 }
 
 void BVH::Intersect( Ray& ray )
 {
+	// backup ray and transform original
+	Ray backupRay = ray;
+	ray.O = TransformPosition( ray.O, invTransform );
+	ray.D = TransformVector( ray.D, invTransform );
+	ray.rD = float3( 1 / ray.D.x, 1 / ray.D.y, 1 / ray.D.z );
+	// trace transformed ray
 	BVHNode* node = &bvhNode[0], * stack[64];
 	uint stackPtr = 0;
 	while (1)
@@ -108,9 +122,12 @@ void BVH::Intersect( Ray& ray )
 			if (dist2 != 1e30f) stack[stackPtr++] = child2;
 		}
 	}
+	// restore ray origin and direction
+	backupRay.t = ray.t;
+	ray = backupRay;
 }
 
-void BVH::RefitBVH()
+void BVH::Refit()
 {
 	Timer t;
 	for (int i = nodesUsed - 1; i >= 0; i--) if (i != 1)
@@ -131,7 +148,7 @@ void BVH::RefitBVH()
 	printf( "BVH refitted in %.2fms  ", t.elapsed() * 1000 );
 }
 
-void BVH::BuildBVH()
+void BVH::Build()
 {
 	// reset node pool
 	nodesUsed = 2;
@@ -260,11 +277,73 @@ void BVH::Subdivide( uint nodeIdx )
 	Subdivide( rightChildIdx );
 }
 
+// TLAS implementation
+
+TLAS::TLAS( BVH* bvhList, int N )
+{
+	// copy a pointer to the array of bottom level accstructs
+	blas = bvhList;
+	blasCount = N;
+	// allocate TLAS nodes
+	tlasNode = (TLASNode*)_aligned_malloc( sizeof( TLASNode ) * 2 * N, 64 );
+	nodesUsed = 2;
+}
+
+void TLAS::Build()
+{
+	// assign a TLASleaf node to each BLAS
+	tlasNode[nodesUsed].leftBLAS = 0;
+	tlasNode[nodesUsed].aabbMin = float3( -100 );
+	tlasNode[nodesUsed].aabbMax = float3( 100 );
+	tlasNode[nodesUsed++].isLeaf = true;
+	tlasNode[nodesUsed].leftBLAS = 1;
+	tlasNode[nodesUsed].aabbMin = float3( -100 );
+	tlasNode[nodesUsed].aabbMax = float3( 100 );
+	tlasNode[nodesUsed++].isLeaf = true;
+	// create a root node over the two leaf nodes
+	tlasNode[0].leftBLAS = 2;
+	tlasNode[0].aabbMin = float3( -100 );
+	tlasNode[0].aabbMax = float3( 100 );
+	tlasNode[0].isLeaf = false;
+}
+
+void TLAS::Intersect( Ray& ray )
+{
+	TLASNode* node = &tlasNode[0], *stack[64];
+	uint stackPtr = 0;
+	while (1)
+	{
+		if (node->isLeaf)
+		{
+			blas[node->leftBLAS].Intersect( ray );
+			if (stackPtr == 0) break; else node = stack[--stackPtr];
+			continue;
+		}
+		TLASNode* child1 = &tlasNode[node->leftBLAS];
+		TLASNode* child2 = &tlasNode[node->leftBLAS + 1];
+		float dist1 = IntersectAABB( ray, child1->aabbMin, child1->aabbMax );
+		float dist2 = IntersectAABB( ray, child2->aabbMin, child2->aabbMax );
+		if (dist1 > dist2) { swap( dist1, dist2 ); swap( child1, child2 ); }
+		if (dist1 == 1e30f)
+		{
+			if (stackPtr == 0) break; else node = stack[--stackPtr];
+		}
+		else
+		{
+			node = child1;
+			if (dist2 != 1e30f) stack[stackPtr++] = child2;
+		}
+	}
+}
+
 // TopLevelApp implementation
 
 void TopLevelApp::Init()
 {
-	bvh = BVH( "assets/bigben.tri", 20944 );
+	bvh[0] = BVH( "assets/armadillo.tri", 30000 );
+	bvh[1] = BVH( "assets/armadillo.tri", 30000 );
+	tlas = TLAS( bvh, 2 );
+	tlas.Build();
 }
 
 void TopLevelApp::Tick( float deltaTime )
@@ -272,21 +351,25 @@ void TopLevelApp::Tick( float deltaTime )
 	// draw the scene
 	float3 p0( -1, 1, 2 ), p1( 1, 1, 2 ), p2( -1, -1, 2 );
 	Timer t;
+	static float angle = 0;
+	angle += 0.01f;
+	if (angle > 2 * PI) angle -= 2 * PI;
+	bvh[0].SetTransform( mat4::Translate( float3( -1.3f, 0, 0 ) ) );
+	bvh[1].SetTransform( mat4::Translate( float3( 1.3f, 0, 0 ) ) * mat4::RotateY( angle ) );
 #pragma omp parallel for schedule(dynamic)
 	for (int tile = 0; tile < 6400; tile++)
 	{
 		int x = tile % 80, y = tile / 80;
 		Ray ray;
-		ray.O = float3( 0, 3.5f, -4.5f );
+		ray.O = float3( 0, 0.5f, -4.5f );
 		for (int v = 0; v < 8; v++) for (int u = 0; u < 8; u++)
 		{
 			float3 pixelPos = ray.O + p0 +
 				(p1 - p0) * ((x * 8 + u) / 640.0f) +
 				(p2 - p0) * ((y * 8 + v) / 640.0f);
 			ray.D = normalize( pixelPos - ray.O ), ray.t = 1e30f;
-			ray.rD = float3( 1 / ray.D.x, 1 / ray.D.y, 1 / ray.D.z );
-			bvh.Intersect( ray );
-			uint c = ray.t < 1e30f ? (255 - (int)((ray.t - 4) * 180)) : 0;
+			tlas.Intersect( ray );
+			uint c = ray.t < 1e30f ? (255 - (int)((ray.t - 3) * 80)) : 0;
 			screen->Plot( x * 8 + u, y * 8 + v, c * 0x10101 );
 		}
 	}

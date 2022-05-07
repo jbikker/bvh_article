@@ -22,6 +22,19 @@ __declspec(align(64)) struct Ray
 	float t = 1e30f;
 };
 
+// minimalist AABB struct with grow functionality
+struct aabb
+{
+	float3 bmin = 1e30f, bmax = -1e30f;
+	void grow( float3 p ) { bmin = fminf( bmin, p ); bmax = fmaxf( bmax, p ); }
+	void grow( aabb& b ) { if (b.bmin.x != 1e30f) { grow( b.bmin ); grow( b.bmax ); } }
+	float area()
+	{
+		float3 e = bmax - bmin; // box extent
+		return e.x * e.y + e.y * e.z + e.z * e.x;
+	}
+};
+
 // 32-byte BVH node struct
 struct BVHNode
 {
@@ -41,8 +54,9 @@ class BVH
 public:
 	BVH() = default;
 	BVH( char* triFile, int N );
-	void BuildBVH();
-	void RefitBVH();
+	void Build();
+	void Refit();
+	void SetTransform( mat4& transform );
 	void Intersect( Ray& ray );
 private:
 	void Subdivide( uint nodeIdx );
@@ -52,19 +66,31 @@ private:
 	Tri* tri = 0;
 	uint* triIdx = 0;
 	uint nodesUsed, triCount;
+	mat4 invTransform; // inverse transform
+	aabb bounds; // in world space
 };
 
-// minimalist AABB struct with grow functionality
-struct aabb
+// top-level node
+struct TLASNode
 {
-	float3 bmin = 1e30f, bmax = -1e30f;
-	void grow( float3 p ) { bmin = fminf( bmin, p ); bmax = fmaxf( bmax, p ); }
-	void grow( aabb& b ) { if (b.bmin.x != 1e30f) { grow( b.bmin ); grow( b.bmax ); } }
-	float area()
-	{
-		float3 e = bmax - bmin; // box extent
-		return e.x * e.y + e.y * e.z + e.z * e.x;
-	}
+	float3 aabbMin;
+	uint leftBLAS;
+	float3 aabbMax;
+	uint isLeaf;
+};
+
+// top-level BVH
+class TLAS
+{
+public:
+	TLAS() = default;
+	TLAS( BVH* bvhList, int N );
+	void Build();
+	void Intersect( Ray& ray );
+private:
+	TLASNode* tlasNode = 0;
+	BVH* blas = 0;
+	uint nodesUsed, blasCount;
 };
 
 // game class
@@ -84,6 +110,8 @@ public:
 	void KeyDown( int key ) { /* implement if you want to handle keys */ }
 	// data members
 	int2 mousePos;
+	BVH bvh[64];
+	TLAS tlas;
 };
 
 } // namespace Tmpl8

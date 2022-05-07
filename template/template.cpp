@@ -737,6 +737,21 @@ float noise2D( const float x, const float y )
 }
 
 // math implementations
+float4::float4( const float3& a, const float d )
+{
+	x = a.x, y = a.y, z = a.z;
+	w = d;
+}
+int4::int4( const int3& a, const int d )
+{
+	x = a.x, y = a.y, z = a.z;
+	w = d;
+}
+uint4::uint4( const uint3& a, const uint d )
+{
+	x = a.x, y = a.y, z = a.z;
+	w = d;
+}
 mat4 operator*( const mat4& a, const mat4& b )
 {
 	mat4 r;
