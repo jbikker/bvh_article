@@ -13,4 +13,7 @@ part 4, animation:<br>
 https://jacco.ompf2.com/2022/04/26/how-to-build-a-bvh-part-4-animation<br><br>
 
 part 5, TLAS & BLAS:<br>
+https://jacco.ompf2.com/2022/05/07/how-to-build-a-bvh-part-5-tlas-blas<br><br>
+
+part 6, TLAS & BLAS part 2:<br>
 <i>UNDER CONSTRUCTION</i><br><br>
