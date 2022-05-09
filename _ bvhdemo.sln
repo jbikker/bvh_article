@@ -12,6 +12,8 @@ Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "4. animation", "animation.v
 EndProject
 Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "5. toplevel", "toplevel.vcxproj", "{54CB63C2-633E-4A1F-B7E7-D9F76064A188}"
 EndProject
+Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "6. alltogether", "alltogether.vcxproj", "{5C8696E8-53A9-49D7-AACA-AADA7BF242C9}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|x64 = Debug|x64
@@ -38,6 +40,10 @@ Global
 		{54CB63C2-633E-4A1F-B7E7-D9F76064A188}.Debug|x64.Build.0 = Debug|x64
 		{54CB63C2-633E-4A1F-B7E7-D9F76064A188}.Release|x64.ActiveCfg = Release|x64
 		{54CB63C2-633E-4A1F-B7E7-D9F76064A188}.Release|x64.Build.0 = Release|x64
+		{5C8696E8-53A9-49D7-AACA-AADA7BF242C9}.Debug|x64.ActiveCfg = Debug|x64
+		{5C8696E8-53A9-49D7-AACA-AADA7BF242C9}.Debug|x64.Build.0 = Debug|x64
+		{5C8696E8-53A9-49D7-AACA-AADA7BF242C9}.Release|x64.ActiveCfg = Release|x64
+		{5C8696E8-53A9-49D7-AACA-AADA7BF242C9}.Release|x64.Build.0 = Release|x64
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

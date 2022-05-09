@@ -1,5 +1,5 @@
 #include "precomp.h"
-#include "toplevel.h"
+#include "alltogether.h"
 
 // UNDER CONSTRUCTION - ARTICLE IS BEING WRITTEN
 
@@ -12,7 +12,7 @@
 // rights are reserved. No responsibility is accepted either.
 // For updates, follow me on twitter: @j_bikker.
 
-TheApp* CreateApp() { return new TopLevelApp(); }
+TheApp* CreateApp() { return new AllTogetherApp(); }
 
 // functions
 
@@ -70,6 +70,7 @@ BVH::BVH( char* triFile, int N )
 	bvhNode = (BVHNode*)_aligned_malloc( sizeof( BVHNode ) * N * 2, 64 );
 	triIdx = new uint[N];
 	Build();
+	SetTransform( mat4::Identity() );
 }
 
 void BVH::SetTransform( mat4& transform )
@@ -78,7 +79,7 @@ void BVH::SetTransform( mat4& transform )
 	// calculate world-space bounds using the new matrix
 	float3 bmin = bvhNode[0].aabbMin, bmax = bvhNode[0].aabbMax;
 	bounds = aabb();
-	for (int i = 0; i < 8; i++)
+	for( int i = 0; i < 8; i++ ) 
 		bounds.grow( TransformPosition( float3( i & 1 ? bmax.x : bmin.x,
 			i & 2 ? bmax.y : bmin.y, i & 4 ? bmax.z : bmin.z ), transform ) );
 }
@@ -289,38 +290,73 @@ TLAS::TLAS( BVH* bvhList, int N )
 	nodesUsed = 2;
 }
 
+int TLAS::FindBestMatch( vector<int>& list, int A )
+{
+	// find BLAS B that, when joined with A, forms the smallest AABB
+	float smallest = 1e30f;
+	int bestB = -1;
+	for( int s = (int)list.size(), B = 0; B < s; B++ ) if (B != A)
+	{
+		float3 bmin = fminf( tlasNode[A].aabbMin, tlasNode[B].aabbMin );
+		float3 bmax = fmaxf( tlasNode[A].aabbMax, tlasNode[B].aabbMax );
+		float3 e = bmax - bmin;
+		float surfaceArea = e.x * e.y + e.y * e.z + e.z * e.x;
+		if (surfaceArea < smallest) smallest = surfaceArea, bestB = B;
+	}
+	return bestB;
+}
+
 void TLAS::Build()
 {
 	// assign a TLASleaf node to each BLAS
-	tlasNode[nodesUsed].leftBLAS = 0;
-	tlasNode[nodesUsed].aabbMin = float3( -100 );
-	tlasNode[nodesUsed].aabbMax = float3( 100 );
-	tlasNode[nodesUsed++].isLeaf = true;
-	tlasNode[nodesUsed].leftBLAS = 1;
-	tlasNode[nodesUsed].aabbMin = float3( -100 );
-	tlasNode[nodesUsed].aabbMax = float3( 100 );
-	tlasNode[nodesUsed++].isLeaf = true;
-	// create a root node over the two leaf nodes
-	tlasNode[0].leftBLAS = 2;
-	tlasNode[0].aabbMin = float3( -100 );
-	tlasNode[0].aabbMax = float3( 100 );
-	tlasNode[0].isLeaf = false;
+	vector<int> nodeIdxList;
+	nodesUsed = 2;
+	for( uint i = 0; i < blasCount; i++ )
+	{
+		nodeIdxList.push_back( nodesUsed );
+		tlasNode[nodesUsed].aabbMin = blas[i].bounds.bmin,
+		tlasNode[nodesUsed].aabbMax = blas[i].bounds.bmax,
+		tlasNode[nodesUsed].BLAS = i;
+		tlasNode[nodesUsed++].leftRight = 0; // makes it a leaf
+	}
+	// use agglomerative clustering to build the TLAS
+	int A = 0, B = FindBestMatch( nodeIdxList, A );
+	while (nodeIdxList.size() > 1)
+	{
+		int C = FindBestMatch( nodeIdxList, B );
+		if (A == C)
+		{
+			int nodeIdxA = nodeIdxList[A], nodeIdxB = nodeIdxList[B];
+			TLASNode& nodeA = tlasNode[nodeIdxA];
+			TLASNode& nodeB = tlasNode[nodeIdxB];
+			TLASNode& newNode = tlasNode[nodesUsed];
+			newNode.leftRight = nodeIdxA + (nodeIdxB << 16);
+			newNode.aabbMin = fminf( nodeA.aabbMin, nodeB.aabbMin );
+			newNode.aabbMax = fmaxf( nodeA.aabbMax, nodeB.aabbMax );
+			nodeIdxList[A] = nodesUsed++;
+			nodeIdxList.erase( nodeIdxList.begin() + B );
+			B = FindBestMatch( nodeIdxList, A );
+		}
+		else A = B, B = C;
+	}
+	tlasNode[0] = tlasNode[nodeIdxList[A]];
 }
 
 void TLAS::Intersect( Ray& ray )
 {
-	TLASNode* node = &tlasNode[0], * stack[64];
+	ray.rD = float3( 1 / ray.D.x, 1 / ray.D.y, 1 / ray.D.z );
+	TLASNode* node = &tlasNode[0], *stack[64];
 	uint stackPtr = 0;
 	while (1)
 	{
-		if (node->isLeaf)
+		if (node->isLeaf())
 		{
-			blas[node->leftBLAS].Intersect( ray );
+			blas[node->BLAS].Intersect( ray );
 			if (stackPtr == 0) break; else node = stack[--stackPtr];
 			continue;
 		}
-		TLASNode* child1 = &tlasNode[node->leftBLAS];
-		TLASNode* child2 = &tlasNode[node->leftBLAS + 1];
+		TLASNode* child1 = &tlasNode[node->leftRight & 0xffff];
+		TLASNode* child2 = &tlasNode[node->leftRight >> 16];
 		float dist1 = IntersectAABB( ray, child1->aabbMin, child1->aabbMax );
 		float dist2 = IntersectAABB( ray, child2->aabbMin, child2->aabbMax );
 		if (dist1 > dist2) { swap( dist1, dist2 ); swap( child1, child2 ); }
@@ -338,15 +374,14 @@ void TLAS::Intersect( Ray& ray )
 
 // TopLevelApp implementation
 
-void TopLevelApp::Init()
+void AllTogetherApp::Init()
 {
 	bvh[0] = BVH( "assets/armadillo.tri", 30000 );
 	bvh[1] = BVH( "assets/armadillo.tri", 30000 );
 	tlas = TLAS( bvh, 2 );
-	tlas.Build();
 }
 
-void TopLevelApp::Tick( float deltaTime )
+void AllTogetherApp::Tick( float deltaTime )
 {
 	// draw the scene
 	float3 p0( -1, 1, 2 ), p1( 1, 1, 2 ), p2( -1, -1, 2 );
@@ -356,6 +391,7 @@ void TopLevelApp::Tick( float deltaTime )
 	if (angle > 2 * PI) angle -= 2 * PI;
 	bvh[0].SetTransform( mat4::Translate( float3( -1.3f, 0, 0 ) ) );
 	bvh[1].SetTransform( mat4::Translate( float3( 1.3f, 0, 0 ) ) * mat4::RotateY( angle ) );
+	tlas.Build();
 #pragma omp parallel for schedule(dynamic)
 	for (int tile = 0; tile < 6400; tile++)
 	{
