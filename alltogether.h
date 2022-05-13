@@ -90,7 +90,7 @@ public:
 	void Build();
 	void Intersect( Ray& ray );
 private:
-	int FindBestMatch( vector<int>& list, int A );
+	int FindBestMatch( int* list, int N, int A );
 	TLASNode* tlasNode = 0;
 	BVH* blas = 0;
 	uint nodesUsed, blasCount;

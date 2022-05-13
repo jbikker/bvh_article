@@ -79,7 +79,7 @@ void BVH::SetTransform( mat4& transform )
 	// calculate world-space bounds using the new matrix
 	float3 bmin = bvhNode[0].aabbMin, bmax = bvhNode[0].aabbMax;
 	bounds = aabb();
-	for( int i = 0; i < 8; i++ ) 
+	for (int i = 0; i < 8; i++)
 		bounds.grow( TransformPosition( float3( i & 1 ? bmax.x : bmin.x,
 			i & 2 ? bmax.y : bmin.y, i & 4 ? bmax.z : bmin.z ), transform ) );
 }
@@ -290,15 +290,15 @@ TLAS::TLAS( BVH* bvhList, int N )
 	nodesUsed = 2;
 }
 
-int TLAS::FindBestMatch( vector<int>& list, int A )
+int TLAS::FindBestMatch( int* list, int N, int A )
 {
 	// find BLAS B that, when joined with A, forms the smallest AABB
 	float smallest = 1e30f;
 	int bestB = -1;
-	for( int s = (int)list.size(), B = 0; B < s; B++ ) if (B != A)
+	for (int B = 0; B < N; B++) if (B != A)
 	{
-		float3 bmin = fminf( tlasNode[A].aabbMin, tlasNode[B].aabbMin );
-		float3 bmax = fmaxf( tlasNode[A].aabbMax, tlasNode[B].aabbMax );
+		float3 bmax = fmaxf( tlasNode[list[A]].aabbMax, tlasNode[list[B]].aabbMax );
+		float3 bmin = fminf( tlasNode[list[A]].aabbMin, tlasNode[list[B]].aabbMin );
 		float3 e = bmax - bmin;
 		float surfaceArea = e.x * e.y + e.y * e.z + e.z * e.x;
 		if (surfaceArea < smallest) smallest = surfaceArea, bestB = B;
@@ -309,43 +309,43 @@ int TLAS::FindBestMatch( vector<int>& list, int A )
 void TLAS::Build()
 {
 	// assign a TLASleaf node to each BLAS
-	vector<int> nodeIdxList;
-	nodesUsed = 2;
-	for( uint i = 0; i < blasCount; i++ )
+	int nodeIdx[256], nodeIndices = blasCount;
+	nodesUsed = 1;
+	for (uint i = 0; i < blasCount; i++)
 	{
-		nodeIdxList.push_back( nodesUsed );
-		tlasNode[nodesUsed].aabbMin = blas[i].bounds.bmin,
-		tlasNode[nodesUsed].aabbMax = blas[i].bounds.bmax,
+		nodeIdx[i] = nodesUsed;
+		tlasNode[nodesUsed].aabbMin = blas[i].bounds.bmin;
+		tlasNode[nodesUsed].aabbMax = blas[i].bounds.bmax;
 		tlasNode[nodesUsed].BLAS = i;
 		tlasNode[nodesUsed++].leftRight = 0; // makes it a leaf
 	}
 	// use agglomerative clustering to build the TLAS
-	int A = 0, B = FindBestMatch( nodeIdxList, A );
-	while (nodeIdxList.size() > 1)
+	int A = 0, B = FindBestMatch( nodeIdx, nodeIndices, A );
+	while (nodeIndices > 1)
 	{
-		int C = FindBestMatch( nodeIdxList, B );
+		int C = FindBestMatch( nodeIdx, nodeIndices, B );
 		if (A == C)
 		{
-			int nodeIdxA = nodeIdxList[A], nodeIdxB = nodeIdxList[B];
+			int nodeIdxA = nodeIdx[A], nodeIdxB = nodeIdx[B];
 			TLASNode& nodeA = tlasNode[nodeIdxA];
 			TLASNode& nodeB = tlasNode[nodeIdxB];
 			TLASNode& newNode = tlasNode[nodesUsed];
 			newNode.leftRight = nodeIdxA + (nodeIdxB << 16);
 			newNode.aabbMin = fminf( nodeA.aabbMin, nodeB.aabbMin );
 			newNode.aabbMax = fmaxf( nodeA.aabbMax, nodeB.aabbMax );
-			nodeIdxList[A] = nodesUsed++;
-			nodeIdxList.erase( nodeIdxList.begin() + B );
-			B = FindBestMatch( nodeIdxList, A );
+			nodeIdx[A] = nodesUsed++;
+			nodeIdx[B] = nodeIdx[nodeIndices - 1];
+			B = FindBestMatch( nodeIdx, --nodeIndices, A );
 		}
 		else A = B, B = C;
 	}
-	tlasNode[0] = tlasNode[nodeIdxList[A]];
+	tlasNode[0] = tlasNode[nodeIdx[A]];
 }
 
 void TLAS::Intersect( Ray& ray )
 {
 	ray.rD = float3( 1 / ray.D.x, 1 / ray.D.y, 1 / ray.D.z );
-	TLASNode* node = &tlasNode[0], *stack[64];
+	TLASNode* node = &tlasNode[0], * stack[64];
 	uint stackPtr = 0;
 	while (1)
 	{
@@ -376,28 +376,36 @@ void TLAS::Intersect( Ray& ray )
 
 void AllTogetherApp::Init()
 {
-	bvh[0] = BVH( "assets/armadillo.tri", 30000 );
-	bvh[1] = BVH( "assets/armadillo.tri", 30000 );
-	tlas = TLAS( bvh, 2 );
+	for (int i = 0; i < 16; i++)
+		bvh[i] = BVH( "assets/armadillo.tri", 30000 );
+	tlas = TLAS( bvh, 16 );
 }
 
 void AllTogetherApp::Tick( float deltaTime )
 {
+	// animate the scene
+	static float a[16] = { 0 }, h[16] = { 5, 4, 3, 2, 1, 5, 4, 3 }, s[16] = { 0 };
+	for (int i = 0, x = 0; x < 4; x++) for (int y = 0; y < 4; y++, i++)
+	{
+		mat4 R, T = mat4::Translate( (x - 1.5f) * 2.5f, 0, (y - 1.5f) * 2.5f );
+		if ((x + y) & 1) R = mat4::RotateX( a[i] ) * mat4::RotateZ( a[i] );
+		else R = mat4::Translate( 0, h[i / 2], 0 );
+		if ((a[i] += (((i * 13) & 7) + 2) * 0.005f) > 2 * PI) a[i] -= 2 * PI;
+		if ((s[i] -= 0.01f, h[i] += s[i]) < 0) s[i] = 0.2f;
+		bvh[i].SetTransform( T * R * mat4::Scale( 0.75f ) );
+	}
 	// draw the scene
-	float3 p0( -1, 1, 2 ), p1( 1, 1, 2 ), p2( -1, -1, 2 );
 	Timer t;
-	static float angle = 0;
-	angle += 0.01f;
-	if (angle > 2 * PI) angle -= 2 * PI;
-	bvh[0].SetTransform( mat4::Translate( float3( -1.3f, 0, 0 ) ) );
-	bvh[1].SetTransform( mat4::Translate( float3( 1.3f, 0, 0 ) ) * mat4::RotateY( angle ) );
 	tlas.Build();
+	float3 p0 = TransformPosition( float3( -1, 1, 2 ), mat4::RotateX( 0.5f ) );
+	float3 p1 = TransformPosition( float3( 1, 1, 2 ), mat4::RotateX( 0.5f ) );
+	float3 p2 = TransformPosition( float3( -1, -1, 2 ), mat4::RotateX( 0.5f ) );
 #pragma omp parallel for schedule(dynamic)
 	for (int tile = 0; tile < 6400; tile++)
 	{
 		int x = tile % 80, y = tile / 80;
 		Ray ray;
-		ray.O = float3( 0, 0.5f, -4.5f );
+		ray.O = float3( 0, 4.5f, -8.5f );
 		for (int v = 0; v < 8; v++) for (int u = 0; u < 8; u++)
 		{
 			float3 pixelPos = ray.O + p0 +
@@ -405,7 +413,7 @@ void AllTogetherApp::Tick( float deltaTime )
 				(p2 - p0) * ((y * 8 + v) / 640.0f);
 			ray.D = normalize( pixelPos - ray.O ), ray.t = 1e30f;
 			tlas.Intersect( ray );
-			uint c = ray.t < 1e30f ? (255 - (int)((ray.t - 3) * 80)) : 0;
+			uint c = ray.t < 1e30f ? (int)(255 / (1 + max( 0.f, ray.t - 5 ))) : 0;
 			screen->Plot( x * 8 + u, y * 8 + v, c * 0x10101 );
 		}
 	}
