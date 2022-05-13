@@ -56,16 +56,28 @@ public:
 	BVH( char* triFile, int N );
 	void Build();
 	void Refit();
-	void SetTransform( mat4& transform );
 	void Intersect( Ray& ray );
 private:
 	void Subdivide( uint nodeIdx );
 	void UpdateNodeBounds( uint nodeIdx );
 	float FindBestSplitPlane( BVHNode& node, int& axis, float& splitPos );
-	BVHNode* bvhNode = 0;
 	Tri* tri = 0;
 	uint* triIdx = 0;
 	uint nodesUsed, triCount;
+public:
+	BVHNode* bvhNode = 0;
+};
+
+// instance of a BVH, with transform and world bounds
+class BVHInstance
+{
+public:
+	BVHInstance() = default;
+	BVHInstance( BVH* blas ) : bvh( blas ) { SetTransform( mat4() ); }
+	void SetTransform( mat4& transform );
+	void Intersect( Ray& ray );
+private:
+	BVH* bvh = 0;
 	mat4 invTransform; // inverse transform
 public:
 	aabb bounds; // in world space
@@ -86,13 +98,13 @@ class TLAS
 {
 public:
 	TLAS() = default;
-	TLAS( BVH* bvhList, int N );
+	TLAS( BVHInstance* bvhList, int N );
 	void Build();
 	void Intersect( Ray& ray );
 private:
 	int FindBestMatch( int* list, int N, int A );
 	TLASNode* tlasNode = 0;
-	BVH* blas = 0;
+	BVHInstance* blas = 0;
 	uint nodesUsed, blasCount;
 };
 
@@ -113,8 +125,9 @@ public:
 	void KeyDown( int key ) { /* implement if you want to handle keys */ }
 	// data members
 	int2 mousePos;
-	BVH bvh[64];
+	BVHInstance bvhInstance[256];
 	TLAS tlas;
+	float3* position, * direction, * orientation;
 };
 
 } // namespace Tmpl8

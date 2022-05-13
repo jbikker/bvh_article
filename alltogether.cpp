@@ -1,13 +1,11 @@
 #include "precomp.h"
 #include "alltogether.h"
 
-// UNDER CONSTRUCTION - ARTICLE IS BEING WRITTEN
-
 // THIS SOURCE FILE:
-// Code for the article "How to Build a BVH", part 5: top-level.
+// Code for the article "How to Build a BVH", part 6: all together now.
 // This version shows how to build and maintain a BVH using
 // a TLAS (top level acceleration structure) over a collection of
-// BLAS'es (bottom level accstructs).
+// BLAS'es (bottom level accstructs), with instancing.
 // Feel free to copy this code to your own framework. Absolutely no
 // rights are reserved. No responsibility is accepted either.
 // For updates, follow me on twitter: @j_bikker.
@@ -70,28 +68,10 @@ BVH::BVH( char* triFile, int N )
 	bvhNode = (BVHNode*)_aligned_malloc( sizeof( BVHNode ) * N * 2, 64 );
 	triIdx = new uint[N];
 	Build();
-	SetTransform( mat4::Identity() );
-}
-
-void BVH::SetTransform( mat4& transform )
-{
-	invTransform = transform.Inverted();
-	// calculate world-space bounds using the new matrix
-	float3 bmin = bvhNode[0].aabbMin, bmax = bvhNode[0].aabbMax;
-	bounds = aabb();
-	for (int i = 0; i < 8; i++)
-		bounds.grow( TransformPosition( float3( i & 1 ? bmax.x : bmin.x,
-			i & 2 ? bmax.y : bmin.y, i & 4 ? bmax.z : bmin.z ), transform ) );
 }
 
 void BVH::Intersect( Ray& ray )
 {
-	// backup ray and transform original
-	Ray backupRay = ray;
-	ray.O = TransformPosition( ray.O, invTransform );
-	ray.D = TransformVector( ray.D, invTransform );
-	ray.rD = float3( 1 / ray.D.x, 1 / ray.D.y, 1 / ray.D.z );
-	// trace transformed ray
 	BVHNode* node = &bvhNode[0], * stack[64];
 	uint stackPtr = 0;
 	while (1)
@@ -123,9 +103,6 @@ void BVH::Intersect( Ray& ray )
 			if (dist2 != 1e30f) stack[stackPtr++] = child2;
 		}
 	}
-	// restore ray origin and direction
-	backupRay.t = ray.t;
-	ray = backupRay;
 }
 
 void BVH::Refit()
@@ -278,11 +255,38 @@ void BVH::Subdivide( uint nodeIdx )
 	Subdivide( rightChildIdx );
 }
 
+// BVHInstance implementation
+
+void BVHInstance::SetTransform( mat4& transform )
+{
+	invTransform = transform.Inverted();
+	// calculate world-space bounds using the new matrix
+	float3 bmin = bvh->bvhNode[0].aabbMin, bmax = bvh->bvhNode[0].aabbMax;
+	bounds = aabb();
+	for (int i = 0; i < 8; i++)
+		bounds.grow( TransformPosition( float3( i & 1 ? bmax.x : bmin.x,
+			i & 2 ? bmax.y : bmin.y, i & 4 ? bmax.z : bmin.z ), transform ) );
+}
+
+void BVHInstance::Intersect( Ray& ray )
+{
+	// backup ray and transform original
+	Ray backupRay = ray;
+	ray.O = TransformPosition( ray.O, invTransform );
+	ray.D = TransformVector( ray.D, invTransform );
+	ray.rD = float3( 1 / ray.D.x, 1 / ray.D.y, 1 / ray.D.z );
+	// trace ray through BVH
+	bvh->Intersect( ray );
+	// restore ray origin and direction
+	backupRay.t = ray.t;
+	ray = backupRay;
+}
+
 // TLAS implementation
 
-TLAS::TLAS( BVH* bvhList, int N )
+TLAS::TLAS( BVHInstance* bvhList, int N )
 {
-	// copy a pointer to the array of bottom level accstructs
+	// copy a pointer to the array of bottom level accstruc instances
 	blas = bvhList;
 	blasCount = N;
 	// allocate TLAS nodes
@@ -376,36 +380,49 @@ void TLAS::Intersect( Ray& ray )
 
 void AllTogetherApp::Init()
 {
-	for (int i = 0; i < 16; i++)
-		bvh[i] = BVH( "assets/armadillo.tri", 30000 );
-	tlas = TLAS( bvh, 16 );
+	BVH* bvh = new BVH( "assets/armadillo.tri", 30000 );
+	for (int i = 0; i < 256; i++)
+		bvhInstance[i] = BVHInstance( bvh );
+	tlas = TLAS( bvhInstance, 256 );
+	// set up spacy armadillo army
+	position = new float3[256];
+	direction = new float3[256];
+	orientation = new float3[256];
+	for( int i = 0; i < 256; i++ )
+	{
+		position[i] = float3( RandomFloat(), RandomFloat(), RandomFloat() ) - 0.5f;
+		position[i] *= 4;
+		direction[i] = normalize( position[i] ) * 0.05f;
+		orientation[i] = float3( RandomFloat(), RandomFloat(), RandomFloat() ) * 2.5f;
+	}
 }
 
 void AllTogetherApp::Tick( float deltaTime )
 {
 	// animate the scene
-	static float a[16] = { 0 }, h[16] = { 5, 4, 3, 2, 1, 5, 4, 3 }, s[16] = { 0 };
-	for (int i = 0, x = 0; x < 4; x++) for (int y = 0; y < 4; y++, i++)
+	for( int i = 0; i < 256; i++ )
 	{
-		mat4 R, T = mat4::Translate( (x - 1.5f) * 2.5f, 0, (y - 1.5f) * 2.5f );
-		if ((x + y) & 1) R = mat4::RotateX( a[i] ) * mat4::RotateZ( a[i] );
-		else R = mat4::Translate( 0, h[i / 2], 0 );
-		if ((a[i] += (((i * 13) & 7) + 2) * 0.005f) > 2 * PI) a[i] -= 2 * PI;
-		if ((s[i] -= 0.01f, h[i] += s[i]) < 0) s[i] = 0.2f;
-		bvh[i].SetTransform( T * R * mat4::Scale( 0.75f ) );
+		mat4 R = mat4::RotateX( orientation[i].x ) * 
+				 mat4::RotateY( orientation[i].y ) *
+				 mat4::RotateZ( orientation[i].z ) * mat4::Scale( 0.2f );
+		bvhInstance[i].SetTransform( mat4::Translate( position[i] ) * R );
+		position[i] += direction[i], orientation[i] += direction[i];
+		if (position[i].x < -3 || position[i].x > 3) direction[i].x *= -1;
+		if (position[i].y < -3 || position[i].y > 3) direction[i].y *= -1;
+		if (position[i].z < -3 || position[i].z > 3) direction[i].z *= -1;
 	}
-	// draw the scene
+	// update the TLAS
 	Timer t;
 	tlas.Build();
-	float3 p0 = TransformPosition( float3( -1, 1, 2 ), mat4::RotateX( 0.5f ) );
-	float3 p1 = TransformPosition( float3( 1, 1, 2 ), mat4::RotateX( 0.5f ) );
-	float3 p2 = TransformPosition( float3( -1, -1, 2 ), mat4::RotateX( 0.5f ) );
+	float tlasTime = t.elapsed() * 1000;
+	// draw the scene
+	float3 p0( -1, 1, 2 ), p1( 1, 1, 2 ), p2( -1, -1, 2 );
 #pragma omp parallel for schedule(dynamic)
 	for (int tile = 0; tile < 6400; tile++)
 	{
 		int x = tile % 80, y = tile / 80;
 		Ray ray;
-		ray.O = float3( 0, 4.5f, -8.5f );
+		ray.O = float3( 0, 0, -6.5f );
 		for (int v = 0; v < 8; v++) for (int u = 0; u < 8; u++)
 		{
 			float3 pixelPos = ray.O + p0 +
@@ -413,12 +430,13 @@ void AllTogetherApp::Tick( float deltaTime )
 				(p2 - p0) * ((y * 8 + v) / 640.0f);
 			ray.D = normalize( pixelPos - ray.O ), ray.t = 1e30f;
 			tlas.Intersect( ray );
-			uint c = ray.t < 1e30f ? (int)(255 / (1 + max( 0.f, ray.t - 5 ))) : 0;
+			uint c = ray.t < 1e30f ? (int)(255 / (1 + max( 0.f, ray.t - 4 ))) : 0;
 			screen->Plot( x * 8 + u, y * 8 + v, c * 0x10101 );
 		}
 	}
+	// report
 	float elapsed = t.elapsed() * 1000;
-	printf( "tracing time: %.2fms (%5.2fK rays/s)\n", elapsed, sqr( 630 ) / elapsed );
+	printf( "tlas build: %.2fms, tracing time: %.2fms (%5.2fK rays/s)\n", tlasTime, elapsed, sqr( 630 ) / elapsed );
 }
 
 // EOF
