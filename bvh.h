@@ -3,24 +3,17 @@
 // enable the use of SSE in the AABB intersection function
 #define USE_SSE
 
-// bin count
+// bin count for binned BVH building
 #define BINS 8
 
 namespace Tmpl8
 {
 
-// minimalist triangle struct
+// minimalist triangle struct, all we need for intersection tests
 struct Tri { float3 vertex0, vertex1, vertex2; float3 centroid; };
 
-// ray struct, prepared for SIMD AABB intersection
-__declspec(align(64)) struct Ray
-{
-	Ray() { O4 = D4 = rD4 = _mm_set1_ps( 1 ); }
-	union { struct { float3 O; float dummy1; }; __m128 O4; };
-	union { struct { float3 D; float dummy2; }; __m128 D4; };
-	union { struct { float3 rD; float dummy3; }; __m128 rD4; };
-	float t = 1e30f;
-};
+// additional triangle data, for texturing and shading
+struct TriEx { float2 uv0, uv1, uv2; float3 N0, N1, N2; float dummy; };
 
 // minimalist AABB struct with grow functionality
 struct aabb
@@ -35,12 +28,22 @@ struct aabb
 	}
 };
 
+// ray struct, prepared for SIMD AABB intersection
+__declspec(align(64)) struct Ray
+{
+	Ray() { O4 = D4 = rD4 = _mm_set1_ps( 1 ); }
+	union { struct { float3 O; float dummy1; }; __m128 O4; };
+	union { struct { float3 D; float dummy2; }; __m128 D4; };
+	union { struct { float3 rD; float dummy3; }; __m128 rD4; };
+	float t = 1e30f;
+};
+
 // 32-byte BVH node struct
 struct BVHNode
 {
 	union { struct { float3 aabbMin; uint leftFirst; }; __m128 aabbMin4; };
 	union { struct { float3 aabbMax; uint triCount; }; __m128 aabbMax4; };
-	bool isLeaf() { return triCount > 0; }
+	bool isLeaf() { return triCount > 0; } // empty BVH leafs do not exist
 	float CalculateNodeCost()
 	{
 		float3 e = aabbMax - aabbMin; // extent of the node
@@ -48,24 +51,37 @@ struct BVHNode
 	}
 };
 
-// bvh 
+// bounding volume hierarchy, to be used as BLAS
 class BVH
 {
 public:
 	BVH() = default;
-	BVH( char* triFile, int N );
-	void Build();
+	BVH( class Mesh* mesh );
+	void Build( uint N );
 	void Refit();
 	void Intersect( Ray& ray );
 private:
 	void Subdivide( uint nodeIdx );
 	void UpdateNodeBounds( uint nodeIdx );
 	float FindBestSplitPlane( BVHNode& node, int& axis, float& splitPos );
-	Tri* tri = 0;
+	class Mesh* mesh = 0;
 	uint* triIdx = 0;
-	uint nodesUsed, triCount;
+	uint nodesUsed;
 public:
 	BVHNode* bvhNode = 0;
+};
+
+// minimalist mesh class
+class Mesh
+{
+public:
+	Mesh() = default;
+	Mesh( const char* objFile, const char* mtlFile );
+	BVH* bvh;
+	Tri tri[1024];			// triangle data for intersection
+	TriEx triEx[1024];		// triangle data for shading
+	int triCount = 0;
+	Surface* texture;
 };
 
 // instance of a BVH, with transform and world bounds
@@ -83,7 +99,7 @@ public:
 	aabb bounds; // in world space
 };
 
-// top-level node
+// top-level BVH node
 struct TLASNode
 {
 	float3 aabbMin;
@@ -93,7 +109,7 @@ struct TLASNode
 	bool isLeaf() { return leftRight == 0; }
 };
 
-// top-level BVH
+// top-level BVH class
 class TLAS
 {
 public:
@@ -108,26 +124,6 @@ private:
 	uint nodesUsed, blasCount;
 };
 
-// game class
-class AllTogetherApp : public TheApp
-{
-public:
-	// game flow methods
-	void Init();
-	void Tick( float deltaTime );
-	void Shutdown() { /* implement if you want to do something on exit */ }
-	// input handling
-	void MouseUp( int button ) { /* implement if you want to detect mouse button presses */ }
-	void MouseDown( int button ) { /* implement if you want to detect mouse button presses */ }
-	void MouseMove( int x, int y ) { mousePos.x = x, mousePos.y = y; }
-	void MouseWheel( float y ) { /* implement if you want to handle the mouse wheel */ }
-	void KeyUp( int key ) { /* implement if you want to handle keys */ }
-	void KeyDown( int key ) { /* implement if you want to handle keys */ }
-	// data members
-	int2 mousePos;
-	BVHInstance bvhInstance[256];
-	TLAS tlas;
-	float3* position, *direction, *orientation;
-};
-
 } // namespace Tmpl8
+
+// EOF
