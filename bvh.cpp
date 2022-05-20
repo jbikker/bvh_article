@@ -3,7 +3,7 @@
 
 // functions
 
-void IntersectTri( Ray& ray, const Tri& tri )
+void IntersectTri( Ray& ray, const Tri& tri, const uint instPrim )
 {
 	// Moeller-Trumbore ray/triangle intersection algorithm, see:
 	// en.wikipedia.org/wiki/M%C3%B6ller%E2%80%93Trumbore_intersection_algorithm
@@ -20,7 +20,9 @@ void IntersectTri( Ray& ray, const Tri& tri )
 	const float v = f * dot( ray.D, q );
 	if (v < 0 || u + v > 1) return;
 	const float t = f * dot( edge2, q );
-	if (t > 0.0001f) ray.t = min( ray.t, t );
+	if (t > 0.0001f && t < ray.hit.t) 
+		ray.hit.t = t, ray.hit.u = u,
+		ray.hit.v = v, ray.hit.instPrim = instPrim;
 }
 
 inline float IntersectAABB( const Ray& ray, const float3 bmin, const float3 bmax )
@@ -32,7 +34,7 @@ inline float IntersectAABB( const Ray& ray, const float3 bmin, const float3 bmax
 	tmin = max( tmin, min( ty1, ty2 ) ), tmax = min( tmax, max( ty1, ty2 ) );
 	float tz1 = (bmin.z - ray.O.z) * ray.rD.z, tz2 = (bmax.z - ray.O.z) * ray.rD.z;
 	tmin = max( tmin, min( tz1, tz2 ) ), tmax = min( tmax, max( tz1, tz2 ) );
-	if (tmax >= tmin && tmin < ray.t && tmax > 0) return tmin; else return 1e30f;
+	if (tmax >= tmin && tmin < ray.hit.t && tmax > 0) return tmin; else return 1e30f;
 }
 
 float IntersectAABB_SSE( const Ray& ray, const __m128& bmin4, const __m128& bmax4 )
@@ -44,7 +46,7 @@ float IntersectAABB_SSE( const Ray& ray, const __m128& bmin4, const __m128& bmax
 	__m128 vmax4 = _mm_max_ps( t1, t2 ), vmin4 = _mm_min_ps( t1, t2 );
 	float tmax = min( vmax4.m128_f32[0], min( vmax4.m128_f32[1], vmax4.m128_f32[2] ) );
 	float tmin = max( vmin4.m128_f32[0], max( vmin4.m128_f32[1], vmin4.m128_f32[2] ) );
-	if (tmax >= tmin && tmin < ray.t && tmax > 0) return tmin; else return 1e30f;
+	if (tmax >= tmin && tmin < ray.hit.t && tmax > 0) return tmin; else return 1e30f;
 }
 
 // Mesh class implementation
@@ -87,10 +89,10 @@ BVH::BVH( Mesh* triMesh )
 	mesh = triMesh;
 	bvhNode = (BVHNode*)_aligned_malloc( sizeof( BVHNode ) * mesh->triCount * 2, 64 );
 	triIdx = new uint[mesh->triCount];
-	Build( mesh->triCount );
+	Build();
 }
 
-void BVH::Intersect( Ray& ray )
+void BVH::Intersect( Ray& ray, uint instanceIdx  )
 {
 	BVHNode* node = &bvhNode[0], * stack[64];
 	uint stackPtr = 0;
@@ -99,7 +101,10 @@ void BVH::Intersect( Ray& ray )
 		if (node->isLeaf())
 		{
 			for (uint i = 0; i < node->triCount; i++)
-				IntersectTri( ray, mesh->tri[triIdx[node->leftFirst + i]] );
+			{
+				uint instPrim = (instanceIdx << 20) + triIdx[node->leftFirst + i];
+				IntersectTri( ray, mesh->tri[instPrim & 0xfffff /* 20 bits */], instPrim );
+			}
 			if (stackPtr == 0) break; else node = stack[--stackPtr];
 			continue;
 		}
@@ -146,19 +151,19 @@ void BVH::Refit()
 	printf( "BVH refitted in %.2fms  ", t.elapsed() * 1000 );
 }
 
-void BVH::Build( uint triCount )
+void BVH::Build()
 {
 	// reset node pool
 	nodesUsed = 2;
 	// populate triangle index array
-	for (uint i = 0; i < triCount; i++) triIdx[i] = i;
+	for (int i = 0; i < mesh->triCount; i++) triIdx[i] = i;
 	// calculate triangle centroids for partitioning
 	Tri* tri = mesh->tri;
-	for (uint i = 0; i < triCount; i++)
+	for (int i = 0; i < mesh->triCount; i++)
 		mesh->tri[i].centroid = (tri[i].vertex0 + tri[i].vertex1 + tri[i].vertex2) * 0.3333f;
 	// assign all triangles to root node
 	BVHNode& root = bvhNode[0];
-	root.leftFirst = 0, root.triCount = triCount;
+	root.leftFirst = 0, root.triCount = mesh->triCount;
 	UpdateNodeBounds( 0 );
 	// subdivide recursively
 	Timer t;
@@ -297,9 +302,9 @@ void BVHInstance::Intersect( Ray& ray )
 	ray.D = TransformVector( ray.D, invTransform );
 	ray.rD = float3( 1 / ray.D.x, 1 / ray.D.y, 1 / ray.D.z );
 	// trace ray through BVH
-	bvh->Intersect( ray );
+	bvh->Intersect( ray, idx );
 	// restore ray origin and direction
-	backupRay.t = ray.t;
+	backupRay.hit = ray.hit;
 	ray = backupRay;
 }
 

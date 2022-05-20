@@ -9,6 +9,8 @@ class PrettyApp : public TheApp
 public:
 	// game flow methods
 	void Init();
+	void AnimateScene();
+	float3 Trace( Ray& ray );
 	void Tick( float deltaTime );
 	void Shutdown() { /* implement if you want to do something on exit */ }
 	// input handling
@@ -23,6 +25,8 @@ public:
 	BVHInstance bvhInstance[256];
 	TLAS tlas;
 	float3* position, *direction, *orientation;
+	float3 p0, p1, p2; // virtual screen plane corners
+	float3* accumulator;
 };
 
 } // namespace Tmpl8

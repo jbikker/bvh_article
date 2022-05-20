@@ -9,7 +9,7 @@
 namespace Tmpl8
 {
 
-// minimalist triangle struct, all we need for intersection tests
+// minimalist triangle struct
 struct Tri { float3 vertex0, vertex1, vertex2; float3 centroid; };
 
 // additional triangle data, for texturing and shading
@@ -28,6 +28,14 @@ struct aabb
 	}
 };
 
+// intersection record, carefully tuned to be 16 bytes in size
+struct Intersection
+{
+	float t;		// intersection distance along ray
+	float u, v;		// barycentric coordinates of the intersection
+	uint instPrim;	// instance index (12 bit) and primitive index (20 bit)
+};
+
 // ray struct, prepared for SIMD AABB intersection
 __declspec(align(64)) struct Ray
 {
@@ -35,7 +43,7 @@ __declspec(align(64)) struct Ray
 	union { struct { float3 O; float dummy1; }; __m128 O4; };
 	union { struct { float3 D; float dummy2; }; __m128 D4; };
 	union { struct { float3 rD; float dummy3; }; __m128 rD4; };
-	float t = 1e30f;
+	Intersection hit; // total ray size: 64 bytes
 };
 
 // 32-byte BVH node struct
@@ -57,9 +65,9 @@ class BVH
 public:
 	BVH() = default;
 	BVH( class Mesh* mesh );
-	void Build( uint N );
+	void Build();
 	void Refit();
-	void Intersect( Ray& ray );
+	void Intersect( Ray& ray, uint instanceIdx );
 private:
 	void Subdivide( uint nodeIdx );
 	void UpdateNodeBounds( uint nodeIdx );
@@ -76,7 +84,7 @@ class Mesh
 {
 public:
 	Mesh() = default;
-	Mesh( const char* objFile, const char* mtlFile );
+	Mesh( const char* objFile, const char* texFile );
 	BVH* bvh;
 	Tri tri[1024];			// triangle data for intersection
 	TriEx triEx[1024];		// triangle data for shading
@@ -89,11 +97,12 @@ class BVHInstance
 {
 public:
 	BVHInstance() = default;
-	BVHInstance( BVH* blas ) : bvh( blas ) { SetTransform( mat4() ); }
+	BVHInstance( BVH* blas, uint index ) : bvh( blas ), idx( index ) { SetTransform( mat4() ); }
 	void SetTransform( mat4& transform );
 	void Intersect( Ray& ray );
 private:
 	BVH* bvh = 0;
+	uint idx;
 	mat4 invTransform; // inverse transform
 public:
 	aabb bounds; // in world space
