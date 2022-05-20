@@ -22,7 +22,7 @@ part 7, consolidation:<br>
 https://jacco.ompf2.com/2022/05/20/how-to-build-a-bvh-part-7-consolidate<br><br>
 
 part 8, whitted:<br>
-[i]UNDER CONSTRUCTION[/i]<br><br>
+<i>UNDER CONSTRUCTION</i><br><br>
 
 part 8, GPGPU:<br>
-[i]UNDER CONSTRUCTION[/i]<br>
+<i>UNDER CONSTRUCTION</i><br>
