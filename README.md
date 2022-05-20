@@ -16,4 +16,13 @@ part 5, TLAS & BLAS:<br>
 https://jacco.ompf2.com/2022/05/07/how-to-build-a-bvh-part-5-tlas-blas<br><br>
 
 part 6, TLAS & BLAS part 2:<br>
-<i>UNDER CONSTRUCTION</i><br><br>
+https://jacco.ompf2.com/2022/05/13/how-to-build-a-bvh-part-6-all-together-now<br><br>
+
+part 7, consolidation:<br>
+https://jacco.ompf2.com/2022/05/20/how-to-build-a-bvh-part-7-consolidate<br><br>
+
+part 8, whitted:<br><br>
+[i]UNDER CONSTRUCTION[/i]<br>
+
+part 8, GPGPU:<br><br>
+[i]UNDER CONSTRUCTION[/i]
