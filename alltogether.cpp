@@ -376,7 +376,7 @@ void TLAS::Intersect( Ray& ray )
 	}
 }
 
-// TopLevelApp implementation
+// AllTogetherApp implementation
 
 void AllTogetherApp::Init()
 {

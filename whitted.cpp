@@ -1,20 +1,23 @@
 #include "precomp.h"
 #include "bvh.h"
-#include "pretty.h"
+#include "whitted.h"
+
+// THIS CODE IS UNDER CONSTRUCTION - WILL BE USED FOR ARTICLE #8.
 
 // THIS SOURCE FILE:
-// Code for the article "How to Build a BVH", part 7: consolidation.
-// This version shows how to ray trace a textured mesh, with basic
-// shading using interpolated normals and a Lambertian material.
+// Code for the article "How to Build a BVH", part 8: Whitted.
+// This version shows how to build a simple Whitted-style ray tracer
+// as a test case for the BVH code of the previous articles. This is
+// also the final preparation for the GPGPU code in article 9.
 // Feel free to copy this code to your own framework. Absolutely no
 // rights are reserved. No responsibility is accepted either.
 // For updates, follow me on twitter: @j_bikker.
 
-TheApp* CreateApp() { return new PrettyApp(); }
+TheApp* CreateApp() { return new WhittedApp(); }
 
-// PrettyApp implementation
+// WhittedApp implementation
 
-void PrettyApp::Init()
+void WhittedApp::Init()
 {
 	Mesh* mesh = new Mesh( "assets/teapot.obj", "assets/bricks.png" );
 	for (int i = 0; i < 16; i++)
@@ -28,7 +31,7 @@ void PrettyApp::Init()
 	accumulator = new float3[640 * 640];
 }
 
-void PrettyApp::AnimateScene()
+void WhittedApp::AnimateScene()
 {
 	// animate the scene
 	static float a[16] = { 0 }, h[16] = { 5, 4, 3, 2, 1, 5, 4, 3 }, s[16] = { 0 };
@@ -45,15 +48,17 @@ void PrettyApp::AnimateScene()
 	tlas.Build();
 }
 
-float3 PrettyApp::Trace( Ray& ray )
+float3 WhittedApp::Trace( Ray& ray )
 {
 	tlas.Intersect( ray );
 	Intersection i = ray.hit;
+	// TODO: skydome
 	if (i.t == 1e30f) return float3( 0 );
+	// TODO: handle primary intersection result
 	return float3( i.u, i.v, 1 - (i.u + i.v) );
 }
 
-void PrettyApp::Tick( float deltaTime )
+void WhittedApp::Tick( float deltaTime )
 {
 	// update the TLAS
 	AnimateScene();
