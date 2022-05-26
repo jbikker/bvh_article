@@ -72,11 +72,11 @@ Mesh::Mesh( const char* objFile, const char* texFile )
 		if (line[0] != 'f') continue; else
 		sscanf( line + 2, "%i/%i/%i %i/%i/%i %i/%i/%i",
 			&a, &b, &c, &d, &e, &f, &g, &h, &i );
-		tri[triCount].vertex0 = P[a], triEx[triCount].N0 = N[b];
-		tri[triCount].vertex1 = P[d], triEx[triCount].N1 = N[e];
-		tri[triCount].vertex2 = P[g], triEx[triCount].N2 = N[h];
-		triEx[triCount].uv0 = UV[c], triEx[triCount].uv1 = UV[f];
-		triEx[triCount++].uv2 = UV[i];
+		tri[triCount].vertex0 = P[a], triEx[triCount].N0 = N[c];
+		tri[triCount].vertex1 = P[d], triEx[triCount].N1 = N[f];
+		tri[triCount].vertex2 = P[g], triEx[triCount].N2 = N[i];
+		triEx[triCount].uv0 = UV[b], triEx[triCount].uv1 = UV[e];
+		triEx[triCount++].uv2 = UV[h];
 	}
 	fclose( file );
 	bvh = new BVH( this );
@@ -283,8 +283,9 @@ void BVH::Subdivide( uint nodeIdx )
 
 // BVHInstance implementation
 
-void BVHInstance::SetTransform( mat4& transform )
+void BVHInstance::SetTransform( mat4& T )
 {
+	transform = T;
 	invTransform = transform.Inverted();
 	// calculate world-space bounds using the new matrix
 	float3 bmin = bvh->bvhNode[0].aabbMin, bmax = bvh->bvhNode[0].aabbMax;

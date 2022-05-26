@@ -15,11 +15,20 @@
 
 TheApp* CreateApp() { return new WhittedApp(); }
 
+inline float3 RGB8toRGB32F( uint c )
+{
+	float s = 1 / 256.0f;
+	int r = (c >> 16) & 255;
+	int g = (c >> 8) & 255;
+	int b = c & 255;
+	return float3( r * s, g * s, b * s );
+}
+
 // WhittedApp implementation
 
 void WhittedApp::Init()
 {
-	Mesh* mesh = new Mesh( "assets/teapot.obj", "assets/bricks.png" );
+	mesh = new Mesh( "assets/teapot.obj", "assets/bricks.png" );
 	for (int i = 0; i < 16; i++)
 		bvhInstance[i] = BVHInstance( mesh->bvh, i );
 	tlas = TLAS( bvhInstance, 16 );
@@ -52,10 +61,29 @@ float3 WhittedApp::Trace( Ray& ray )
 {
 	tlas.Intersect( ray );
 	Intersection i = ray.hit;
-	// TODO: skydome
 	if (i.t == 1e30f) return float3( 0 );
-	// TODO: handle primary intersection result
-	return float3( i.u, i.v, 1 - (i.u + i.v) );
+	// calculate texture uv based on barycentrics
+	uint triIdx = i.instPrim & 0xfffff;
+	uint instIdx = i.instPrim >> 20;
+	TriEx& tri = mesh->triEx[triIdx];
+	Surface* tex = mesh->texture;
+	float2 uv = i.u * tri.uv1 + i.v * tri.uv2 + (1 - (i.u + i.v)) * tri.uv0;
+	int iu = (int)(uv.x * tex->width) % tex->width;
+	int iv = (int)(uv.y * tex->height) % tex->height;
+	uint texel = tex->pixels[iu + iv * tex->width];
+	float3 albedo = RGB8toRGB32F( texel );
+	// calculate the normal for the intersection
+	float3 N = i.u * tri.N1 + i.v * tri.N2 + (1 - (i.u + i.v)) * tri.N0;
+	N = normalize( TransformVector( N, bvhInstance[instIdx].GetTransform() ) );
+	// illuminate the intersection point
+	float3 lightPos( 3, 10, 2 );
+	float3 lightColor( 150, 150, 120 );
+	float3 ambient( 0.2f, 0.2f, 0.4f );
+	float3 I = ray.O + i.t * ray.D;
+	float3 L = lightPos - I;
+	float dist = length( L );
+	L *= 1.0f / dist;
+	return albedo * (ambient + max( 0.0f, dot( N, L ) ) * lightColor * (1.0f / (dist * dist)));
 }
 
 void WhittedApp::Tick( float deltaTime )

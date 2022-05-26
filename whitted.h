@@ -22,6 +22,7 @@ public:
 	void KeyDown( int key ) { /* implement if you want to handle keys */ }
 	// data members
 	int2 mousePos;
+	Mesh* mesh;
 	BVHInstance bvhInstance[256];
 	TLAS tlas;
 	float3* position, *direction, *orientation;
