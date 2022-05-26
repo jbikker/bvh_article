@@ -28,6 +28,8 @@ public:
 	float3* position, *direction, *orientation;
 	float3 p0, p1, p2; // virtual screen plane corners
 	float3* accumulator;
+	float* skyPixels;
+	int skyWidth, skyHeight, skyBpp;
 };
 
 } // namespace Tmpl8

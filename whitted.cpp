@@ -38,6 +38,9 @@ void WhittedApp::Init()
 	p2 = TransformPosition( float3( -1, -1, 2 ), mat4::RotateX( 0.5f ) );
 	// create a floating point accumulator for the screen
 	accumulator = new float3[640 * 640];
+	// load HDR sky
+	int bpp = 0;
+	skyPixels = stbi_loadf( "assets/sky_19.hdr", &skyWidth, &skyHeight, &skyBpp, 0 );
 }
 
 void WhittedApp::AnimateScene()
@@ -61,7 +64,15 @@ float3 WhittedApp::Trace( Ray& ray )
 {
 	tlas.Intersect( ray );
 	Intersection i = ray.hit;
-	if (i.t == 1e30f) return float3( 0 );
+	if (i.t == 1e30f) 
+	{
+		// sample sky
+		float stheta = acosf( clamp( ray.D.z, -1.f, 1.f ) );
+		uint u = skyWidth * atan2f( ray.D.y, ray.D.x ) * INV2PI - 0.5f;
+		uint v = skyHeight * stheta * INVPI - 0.5f;
+		uint skyIdx = u + v * skyWidth;
+		return 0.35f * float3( skyPixels[skyIdx * 3], skyPixels[skyIdx * 3 + 1], skyPixels[skyIdx * 3 + 2] );
+	}
 	// calculate texture uv based on barycentrics
 	uint triIdx = i.instPrim & 0xfffff;
 	uint instIdx = i.instPrim >> 20;
