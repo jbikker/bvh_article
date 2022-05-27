@@ -10,7 +10,7 @@ public:
 	// game flow methods
 	void Init();
 	void AnimateScene();
-	float3 Trace( Ray& ray );
+	float3 Trace( Ray& ray, int rayDepth = 0 );
 	void Tick( float deltaTime );
 	void Shutdown() { /* implement if you want to do something on exit */ }
 	// input handling
