@@ -2,8 +2,6 @@
 #include "bvh.h"
 #include "whitted.h"
 
-// THIS CODE IS UNDER CONSTRUCTION - WILL BE USED FOR ARTICLE #8.
-
 // THIS SOURCE FILE:
 // Code for the article "How to Build a BVH", part 8: Whitted.
 // This version shows how to build a simple Whitted-style ray tracer
