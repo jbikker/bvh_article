@@ -40,6 +40,9 @@ static const CPUCaps cpucaps;
 // find the app implementation
 TheApp* CreateApp();
 
+// provide access to the render target, for OpenCL / OpenGL interop
+GLTexture* GetRenderTarget() { return renderTarget; }
+
 // GLFW callbacks
 void InitRenderTarget( int w, int h )
 {
@@ -268,7 +271,7 @@ void main()
 		// send the rendering result to the screen using OpenGL
 		if (frameNr++ > 1)
 		{
-			renderTarget->CopyFrom( app->screen );
+			if (app->screen) renderTarget->CopyFrom( app->screen );
 			shader->Bind();
 			shader->SetInputTexture( 0, "c", renderTarget );
 			DrawQuad();
@@ -1441,93 +1444,72 @@ void Kernel::CheckCLStarted()
 
 // SetArgument methods
 // ----------------------------------------------------------------------------
-void Kernel::SetArgument( int idx, cl_mem* buffer ) { CheckCLStarted(); clSetKernelArg( kernel, idx, sizeof( cl_mem ), buffer ); arg0set |= idx == 0; argIdx = idx; }
-void Kernel::SetArgument( int idx, Buffer* buffer ) { CheckCLStarted(); clSetKernelArg( kernel, idx, sizeof( cl_mem ), buffer->GetDevicePtr() ); arg0set |= idx == 0; argIdx = idx; }
-void Kernel::SetArgument( int idx, Buffer& buffer ) { CheckCLStarted(); clSetKernelArg( kernel, idx, sizeof( cl_mem ), buffer.GetDevicePtr() ); arg0set |= idx == 0; argIdx = idx; }
-void Kernel::SetArgument( int idx, int value ) { CheckCLStarted(); clSetKernelArg( kernel, idx, sizeof( int ), &value ); arg0set |= idx == 0; argIdx = idx; }
-void Kernel::SetArgument( int idx, float value ) { CheckCLStarted(); clSetKernelArg( kernel, idx, sizeof( float ), &value ); arg0set |= idx == 0; argIdx = idx; }
-void Kernel::SetArgument( int idx, float2 value ) { CheckCLStarted(); clSetKernelArg( kernel, idx, sizeof( float2 ), &value ); arg0set |= idx == 0; argIdx = idx; }
-void Kernel::SetArgument( int idx, float3 value ) { CheckCLStarted(); clSetKernelArg( kernel, idx, sizeof( float3 ), &value ); arg0set |= idx == 0; argIdx = idx; }
-void Kernel::SetArgument( int idx, float4 value ) { CheckCLStarted(); clSetKernelArg( kernel, idx, sizeof( float4 ), &value ); arg0set |= idx == 0; argIdx = idx; }
+void Kernel::SetArgument( int idx, cl_mem* buffer ) { CheckCLStarted(); clSetKernelArg( kernel, idx, sizeof( cl_mem ), buffer ); }
+void Kernel::SetArgument( int idx, Buffer* buffer ) 
+{ 
+	CheckCLStarted(); 
+	clSetKernelArg( kernel, idx, sizeof( cl_mem ), buffer->GetDevicePtr() ); 
+	if (buffer->type & Buffer::TARGET) 
+	{
+		if (acqBuffer) FatalError( "Kernel can take only one texture target buffer argument." );
+		acqBuffer = buffer;
+	}
+}
+void Kernel::SetArgument( int idx, Buffer& buffer ) { CheckCLStarted(); clSetKernelArg( kernel, idx, sizeof( cl_mem ), buffer.GetDevicePtr() ); }
+void Kernel::SetArgument( int idx, int value ) { CheckCLStarted(); clSetKernelArg( kernel, idx, sizeof( int ), &value ); }
+void Kernel::SetArgument( int idx, float value ) { CheckCLStarted(); clSetKernelArg( kernel, idx, sizeof( float ), &value ); }
+void Kernel::SetArgument( int idx, float2 value ) { CheckCLStarted(); clSetKernelArg( kernel, idx, sizeof( float2 ), &value ); }
+void Kernel::SetArgument( int idx, float3 value ) { CheckCLStarted(); clSetKernelArg( kernel, idx, sizeof( float3 ), &value ); }
+void Kernel::SetArgument( int idx, float4 value ) { CheckCLStarted(); clSetKernelArg( kernel, idx, sizeof( float4 ), &value ); }
 
 // Run method
 // ----------------------------------------------------------------------------
-void Kernel::Run( cl_event* eventToWaitFor, cl_event* eventToSet )
-{
-	CheckCLStarted();
-	glFinish();
-	cl_int error = clEnqueueNDRangeKernel( queue, kernel, 2, 0, workSize, localSize, eventToWaitFor ? 1 : 0, eventToWaitFor, eventToSet );
-	CHECKCL( error );
-	clFinish( queue );
-}
-
-void Kernel::Run( cl_mem* buffers, const int count, cl_event* eventToWaitFor, cl_event* eventToSet, cl_event* acq, cl_event* rel )
+void Kernel::Run( const size_t count, const size_t localSize, cl_event* eventToWaitFor, cl_event* eventToSet )
 {
 	CheckCLStarted();
 	cl_int error;
-	if (Kernel::candoInterop)
+	if (acqBuffer)
 	{
-		CHECKCL( error = clEnqueueAcquireGLObjects( queue, count, buffers, 0, 0, acq ) );
-		CHECKCL( error = clEnqueueNDRangeKernel( queue, kernel, 2, 0, workSize, localSize, eventToWaitFor ? 1 : 0, eventToWaitFor, eventToSet ) );
-		CHECKCL( error = clEnqueueReleaseGLObjects( queue, count, buffers, 0, 0, rel ) );
+		if (!Kernel::candoInterop) FatalError( "OpenGL interop functionality required but not available." );
+		CHECKCL( error = clEnqueueAcquireGLObjects( queue, 1, acqBuffer->GetDevicePtr(), 0, 0, 0 ) );
+		CHECKCL( error = clEnqueueNDRangeKernel( queue, kernel, 1, 0, &count, localSize == 0 ? 0 : &localSize, eventToWaitFor ? 1 : 0, eventToWaitFor, eventToSet ) );
+		CHECKCL( error = clEnqueueReleaseGLObjects( queue, 1, acqBuffer->GetDevicePtr(), 0, 0, 0 ) );
 	}
 	else
 	{
-		CHECKCL( error = clEnqueueNDRangeKernel( queue, kernel, 2, 0, workSize, localSize, eventToWaitFor ? 1 : 0, eventToWaitFor, eventToSet ) );
-	}
-}
-
-void Kernel::Run( Buffer* buffer, const int2 tileSize, cl_event* eventToWaitFor, cl_event* eventToSet, cl_event* acq, cl_event* rel )
-{
-	// execute a kernel for each pixel of a screen buffer, 1 thread per pixel
-	CheckCLStarted();
-	cl_int error;
-	if (!arg0set) FatalError( "Kernel expects at least 1 argument, none set." );
-	if (Kernel::candoInterop)
-	{
-		size_t localSize[2] = { (size_t)tileSize.x, (size_t)tileSize.y };
-		CHECKCL( error = clEnqueueAcquireGLObjects( queue, 1, buffer->GetDevicePtr(), 0, 0, acq ) );
-		CHECKCL( error = clEnqueueNDRangeKernel( queue, kernel, 2, 0, workSize, localSize, eventToWaitFor ? 1 : 0, eventToWaitFor, eventToSet ) );
-		CHECKCL( error = clEnqueueReleaseGLObjects( queue, 1, buffer->GetDevicePtr(), 0, 0, rel ) );
-	}
-	else
-	{
-		CHECKCL( error = clEnqueueNDRangeKernel( queue, kernel, 2, 0, workSize, localSize, eventToWaitFor ? 1 : 0, eventToWaitFor, eventToSet ) );
-	}
-}
-
-void Kernel::Run( Buffer* buffer, const int count, cl_event* eventToWaitFor, cl_event* eventToSet, cl_event* acq, cl_event* rel )
-{
-	// execute a 1D kernel that outputs to a screen buffer
-	CheckCLStarted();
-	cl_int error;
-	size_t workSize = (size_t)count;
-	if (Kernel::candoInterop)
-	{
-		CHECKCL( error = clEnqueueAcquireGLObjects( queue, 1, buffer->GetDevicePtr(), 0, 0, acq ) );
-		CHECKCL( error = clEnqueueNDRangeKernel( queue, kernel, 1, 0, &workSize, 0, eventToWaitFor ? 1 : 0, eventToWaitFor, eventToSet ) );
-		CHECKCL( error = clEnqueueReleaseGLObjects( queue, 1, buffer->GetDevicePtr(), 0, 0, rel ) );
-	}
-	else
-	{
-		CHECKCL( error = clEnqueueNDRangeKernel( queue, kernel, 1, 0, &workSize, 0, eventToWaitFor ? 1 : 0, eventToWaitFor, eventToSet ) );
+		CHECKCL( error = clEnqueueNDRangeKernel( queue, kernel, 1, 0, &count, localSize == 0 ? 0 : &localSize, eventToWaitFor ? 1 : 0, eventToWaitFor, eventToSet ) );
 	}
 }
 
 void Kernel::Run2D( const int2 count, const int2 lsize, cl_event* eventToWaitFor, cl_event* eventToSet )
 {
 	CheckCLStarted();
-	size_t localSize[2] = { (size_t)lsize.x, (size_t)lsize.y };
 	size_t workSize[2] = { (size_t)count.x, (size_t)count.y };
+	size_t localSize[2];
+	if (lsize.x > 0 && lsize.y > 0)
+	{
+		// use specified workgroup size
+		localSize[0] = (size_t)lsize.x;
+		localSize[1] = (size_t)lsize.y;
+	}
+	else
+	{
+		// workgroup size not specified; use something reasonable
+		localSize[0] = 32;
+		localSize[1] = 4;
+	}
 	cl_int error;
-	CHECKCL( error = clEnqueueNDRangeKernel( queue, kernel, 2, 0, workSize, localSize, eventToWaitFor ? 1 : 0, eventToWaitFor, eventToSet ) );
-}
-
-void Kernel::Run( const size_t count, const size_t localSize, cl_event* eventToWaitFor, cl_event* eventToSet )
-{
-	CheckCLStarted();
-	cl_int error;
-	CHECKCL( error = clEnqueueNDRangeKernel( queue, kernel, 1, 0, &count, localSize == 0 ? 0 : &localSize, eventToWaitFor ? 1 : 0, eventToWaitFor, eventToSet ) );
+	if (acqBuffer)
+	{
+		if (!Kernel::candoInterop) FatalError( "OpenGL interop functionality required but not available." );
+		CHECKCL( error = clEnqueueAcquireGLObjects( queue, 1, acqBuffer->GetDevicePtr(), 0, 0, 0 ) );
+		CHECKCL( error = clEnqueueNDRangeKernel( queue, kernel, 2, 0, workSize, localSize, eventToWaitFor ? 1 : 0, eventToWaitFor, eventToSet ) );
+		CHECKCL( error = clEnqueueReleaseGLObjects( queue, 1, acqBuffer->GetDevicePtr(), 0, 0, 0 ) );
+	}
+	else
+	{
+		CHECKCL( error = clEnqueueNDRangeKernel( queue, kernel, 2, 0, workSize, localSize, eventToWaitFor ? 1 : 0, eventToWaitFor, eventToSet ) );
+	}
 }
 
 // surface implementation

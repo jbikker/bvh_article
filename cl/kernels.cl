@@ -1,13 +1,12 @@
 #include "template/common.h"
 #include "cl/tools.cl"
 
-__kernel void render( __global uint* pixels, const int offset )
+__kernel void render( write_only image2d_t target, const int offset )
 {
 	// plot a pixel to outimg
-	const int p = get_global_id( 0 );
-	const int x = p % 511, red = x / 2 + offset;
-	const int y = p / 512, green = y / 2;
-	pixels[x + y * 512] = (red << 16) + (green << 8);
+	const int x = get_global_id( 0 ), red = x / 3 + offset;
+	const int y = get_global_id( 1 ), green = y / 3;
+	write_imagef( target, (int2)(x, y), (float4)( red / 256.0f, green / 256.0f, 0, 1 ) );
 }
 
 // EOF

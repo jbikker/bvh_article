@@ -160,27 +160,27 @@ using namespace Tmpl8;
 #endif
 
 // vector type placeholders, carefully matching OpenCL's layout and alignment
-struct ALIGN( 8 ) int2 
-{ 
-	int2() = default; 
-	int2( const int a, const int b ) : x( a ), y( b ) {} 
+struct ALIGN( 8 ) int2
+{
+	int2() = default;
+	int2( const int a, const int b ) : x( a ), y( b ) {}
 	int2( const int a ) : x( a ), y( a ) {}
 	union { struct { int x, y; }; int cell[2]; };
 	int operator [] ( const int n ) const { return cell[n]; }
 };
-struct ALIGN( 8 ) uint2 
-{ 
-	uint2() = default; 
-	uint2( const int a, const int b ) : x( a ), y( b ) {} 
+struct ALIGN( 8 ) uint2
+{
+	uint2() = default;
+	uint2( const int a, const int b ) : x( a ), y( b ) {}
 	uint2( const uint a ) : x( a ), y( a ) {}
 	union { struct { uint x, y; }; uint cell[2]; };
 	uint operator [] ( const int n ) const { return cell[n]; }
 };
-struct ALIGN( 8 ) float2 
-{ 
-	float2() = default; 
-	float2( const float a, const float b ) : x( a ), y( b ) {} 
-	float2( const float a ) : x(a ), y(a ) {}
+struct ALIGN( 8 ) float2
+{
+	float2() = default;
+	float2( const float a, const float b ) : x( a ), y( b ) {}
+	float2( const float a ) : x( a ), y( a ) {}
 	union { struct { float x, y; }; float cell[2]; };
 	float operator [] ( const int n ) const { return cell[n]; }
 };
@@ -190,14 +190,14 @@ struct ALIGN( 16 ) int4
 	int4() = default;
 	int4( const int a, const int b, const int c, const int d ) : x( a ), y( b ), z( c ), w( d ) {}
 	int4( const int a ) : x( a ), y( a ), z( a ), w( a ) {}
-	int4( const int3& a, const int d );
+	int4( const int3 & a, const int d );
 	union { struct { int x, y, z, w; }; int cell[4]; };
 	int operator [] ( const int n ) const { return cell[n]; }
 };
 struct ALIGN( 16 ) int3
-{ 
-	int3() = default; 
-	int3( const int a, const int b, const int c ) : x( a ), y( b ), z( c ) {} 
+{
+	int3() = default;
+	int3( const int a, const int b, const int c ) : x( a ), y( b ), z( c ) {}
 	int3( const int a ) : x( a ), y( a ), z( a ) {}
 	int3( const int4 a ) : x( a.x ), y( a.y ), z( a.z ) {}
 	union { struct { int x, y, z; int dummy; }; int cell[4]; };
@@ -209,14 +209,14 @@ struct ALIGN( 16 ) uint4
 	uint4() = default;
 	uint4( const uint a, const uint b, const uint c, const uint d ) : x( a ), y( b ), z( c ), w( d ) {}
 	uint4( const uint a ) : x( a ), y( a ), z( a ), w( a ) {}
-	uint4( const uint3& a, const uint d );
+	uint4( const uint3 & a, const uint d );
 	union { struct { uint x, y, z, w; }; uint cell[4]; };
 	uint operator [] ( const int n ) const { return cell[n]; }
 };
 struct ALIGN( 16 ) uint3
-{ 
-	uint3() = default; 
-	uint3( const uint a, const uint b, const uint c ) : x( a ), y( b ), z( c ) {} 
+{
+	uint3() = default;
+	uint3( const uint a, const uint b, const uint c ) : x( a ), y( b ), z( c ) {}
 	uint3( const uint a ) : x( a ), y( a ), z( a ) {}
 	uint3( const uint4 a ) : x( a.x ), y( a.y ), z( a.z ) {}
 	union { struct { uint x, y, z; uint dummy; }; uint cell[4]; };
@@ -228,7 +228,7 @@ struct ALIGN( 16 ) float4
 	float4() = default;
 	float4( const float a, const float b, const float c, const float d ) : x( a ), y( b ), z( c ), w( d ) {}
 	float4( const float a ) : x( a ), y( a ), z( a ), w( a ) {}
-	float4( const float3& a, const float d );
+	float4( const float3 & a, const float d );
 	union { struct { float x, y, z, w; }; float cell[4]; };
 	float operator [] ( const int n ) const { return cell[n]; }
 };
@@ -242,8 +242,8 @@ struct float3
 	union { struct { float x, y, z; }; float cell[3]; };
 	float operator [] ( const int n ) const { return cell[n]; }
 };
-struct ALIGN( 4 ) uchar4 
-{ 
+struct ALIGN( 4 ) uchar4
+{
 	uchar4() = default;
 	uchar4( const uchar a, const uchar b, const uchar c, const uchar d ) : x( a ), y( b ), z( c ), w( d ) {}
 	uchar4( const uchar a ) : x( a ), y( a ), z( a ), w( a ) {}
@@ -274,6 +274,9 @@ public:
 	GLuint ID = 0;
 	uint width = 0, height = 0;
 };
+
+// template function access
+GLTexture* GetRenderTarget();
 
 // shader wrapper
 class mat4;
@@ -1175,13 +1178,91 @@ public:
 	static cl_command_queue& GetQueue2() { return queue2; }
 	static cl_context& GetContext() { return context; }
 	static cl_device_id& GetDevice() { return device; }
-	// methods
+	// run methods
+#if 1
 	void Run( cl_event* eventToWaitFor = 0, cl_event* eventToSet = 0 );
 	void Run( cl_mem* buffers, const int count = 1, cl_event* eventToWaitFor = 0, cl_event* eventToSet = 0, cl_event* acq = 0, cl_event* rel = 0 );
 	void Run( Buffer* buffer, const int2 localSize = make_int2( 32, 2 ), cl_event* eventToWaitFor = 0, cl_event* eventToSet = 0, cl_event* acq = 0, cl_event* rel = 0 );
 	void Run( Buffer* buffer, const int count = 1, cl_event* eventToWaitFor = 0, cl_event* eventToSet = 0, cl_event* acq = 0, cl_event* rel = 0 );
+#endif
 	void Run( const size_t count, const size_t localSize = 0, cl_event* eventToWaitFor = 0, cl_event* eventToSet = 0 );
-	void Run2D( const int2 count, const int2 lsize, cl_event* eventToWaitFor = 0, cl_event* eventToSet = 0 );
+	void Run2D( const int2 count, const int2 lsize = 0, cl_event* eventToWaitFor = 0, cl_event* eventToSet = 0 );
+	// argument passing with template trickery
+#define T_ typename
+	template<T_ A> void SetArguments( A a ) { I(); SetArgument( 0, a ); }
+	template<T_ A, T_ B> void SetArguments( A a, B b ) { I(); S( 0, a ); S( 1, b ); }
+	template<T_ A, T_ B, T_ C> void SetArguments( A a, B b, C c ) { I(); S( 0, a ); S( 1, b ); S( 2, c ); }
+	template<T_ A, T_ B, T_ C, T_ D> void SetArguments( A a, B b, C c, D d ) { I(); S( 0, a ); S( 1, b ); S( 2, c ); S( 3, d ); }
+	template<T_ A, T_ B, T_ C, T_ D, T_ E> void SetArguments( A a, B b, C c, D d, E e ) { I(); S( 0, a ); S( 1, b ); S( 2, c ); S( 3, d ); S( 4, e ); }
+	template<T_ A, T_ B, T_ C, T_ D, T_ E, T_ F> void SetArguments( A a, B b, C c, D d, E e, F f )
+	{
+		I(); S( 0, a ); S( 1, b ); S( 2, c ); S( 3, d ); S( 4, e ); S( 5, f );
+	}
+	template<T_ A, T_ B, T_ C, T_ D, T_ E, T_ F, T_ G> void SetArguments( A a, B b, C c, D d, E e, F f, G g )
+	{
+		I(); S( 0, a ); S( 1, b ); S( 2, c ); S( 3, d ); S( 4, e ); S( 5, f ); S( 6, g );
+	}
+	template<T_ A, T_ B, T_ C, T_ D, T_ E, T_ F, T_ G, T_ H> void SetArguments( A a, B b, C c, D d, E e, F f, G g, H h )
+	{
+		I(); S( 0, a ); S( 1, b ); S( 2, c ); S( 3, d ); S( 4, e ); S( 5, f ); S( 6, g ); S( 7, h );
+	}
+	template<T_ A, T_ B, T_ C, T_ D, T_ E, T_ F, T_ G, T_ H, T_ I> void SetArguments( A a, B b, C c, D d, E e, F f, G g, H h, I i )
+	{
+		I(); S( 0, a ); S( 1, b ); S( 2, c ); S( 3, d ); S( 4, e ); S( 5, f ); S( 6, g ); S( 7, h ); S( 8, i );
+	}
+	template<T_ A, T_ B, T_ C, T_ D, T_ E, T_ F, T_ G, T_ H, T_ I, T_ J> 
+	void SetArguments( A a, B b, C c, D d, E e, F f, G g, H h, I i, J j )
+	{
+		I(); 
+		S( 0, a ); S( 1, b ); S( 2, c ); S( 3, d ); S( 4, e );
+		S( 5, f ); S( 6, g ); S( 7, h ); S( 8, i ); S( 9, j );
+	}
+	template<T_ A, T_ B, T_ C, T_ D, T_ E, T_ F, T_ G, T_ H, T_ I, T_ J, T_ K>
+	void SetArguments( A a, B b, C c, D d, E e, F f, G g, H h, I i, J j, K k )
+	{
+		I(); 
+		S( 0, a ); S( 1, b ); S( 2, c ); S( 3, d ); S( 4, e ); S( 5, f );
+		S( 6, g ); S( 7, h ); S( 8, i ); S( 9, j ); S( 10, k );
+	}
+	template<T_ A, T_ B, T_ C, T_ D, T_ E, T_ F, T_ G, T_ H, T_ I, T_ J, T_ K, T_ L>
+	void SetArguments( A a, B b, C c, D d, E e, F f, G g, H h, I i, J j, K k, L l )
+	{
+		I(); 
+		S( 0, a ); S( 1, b ); S( 2, c ); S( 3, d ); S( 4, e ); S( 5, f );
+		S( 6, g ); S( 7, h ); S( 8, i ); S( 9, j ); S( 10, k ); S( 11, l );
+	}
+	template<T_ A, T_ B, T_ C, T_ D, T_ E, T_ F, T_ G, T_ H, T_ I, T_ J, T_ K, T_ L, T_ M>
+	void SetArguments( A a, B b, C c, D d, E e, F f, G g, H h, I i, J j, K k, L l, M m )
+	{
+		I(); 
+		S( 0, a ); S( 1, b ); S( 2, c ); S( 3, d ); S( 4, e ); S( 5, f ); S( 6, g );
+		S( 7, h ); S( 8, i ); S( 9, j ); S( 10, k ); S( 11, l ); S( 12, m );
+	}
+	template<T_ A, T_ B, T_ C, T_ D, T_ E, T_ F, T_ G, T_ H, T_ I, T_ J, T_ K, T_ L, T_ M, T_ N>
+	void SetArguments( A a, B b, C c, D d, E e, F f, G g, H h, I i, J j, K k, L l, M m, N n )
+	{
+		I(); 
+		S( 0, a ); S( 1, b ); S( 2, c ); S( 3, d ); S( 4, e ); S( 5, f ); S( 6, g );
+		S( 7, h ); S( 8, i ); S( 9, j ); S( 10, k ); S( 11, l ); S( 12, m ), S( 13, n );
+	}
+	template<T_ A, T_ B, T_ C, T_ D, T_ E, T_ F, T_ G, T_ H, T_ I, T_ J, T_ K, T_ L, T_ M, T_ N, T_ O>
+	void SetArguments( A a, B b, C c, D d, E e, F f, G g, H h, I i, J j, K k, L l, M m, N n, O o )
+	{
+		I(); 
+		S( 0, a ); S( 1, b ); S( 2, c ); S( 3, d ); S( 4, e ); S( 5, f ); S( 6, g ); S( 7, h );
+		S( 8, i ); S( 9, j ); S( 10, k ); S( 11, l ); S( 12, m ), S( 13, n ); S(14, o );
+	}
+	template<T_ A, T_ B, T_ C, T_ D, T_ E, T_ F, T_ G, T_ H, T_ I, T_ J, T_ K, T_ L, T_ M, T_ N, T_ O, T_ P>
+	void SetArguments( A a, B b, C c, D d, E e, F f, G g, H h, I i, J j, K k, L l, M m, N n, O o, P p )
+	{
+		I(); 
+		S( 0, a ); S( 1, b ); S( 2, c ); S( 3, d ); S( 4, e ); S( 5, f ); S( 6, g ); S( 7, h );
+		S( 8, i ); S( 9, j ); S( 10, k ); S( 11, l ); S( 12, m ), S( 13, n ); S( 14, o ), S(15, p );
+	}
+	template<T_ T> void S( uint i, T t ) { SetArgument( i, t ); }
+	void I() { acqBuffer = 0; /* nothing to acquire until told otherwise */ }
+#undef T_
+private:
 	void SetArgument( int idx, cl_mem* buffer );
 	void SetArgument( int idx, Buffer* buffer );
 	void SetArgument( int idx, Buffer& buffer );
@@ -1190,30 +1271,17 @@ public:
 	void SetArgument( int idx, float2 );
 	void SetArgument( int idx, float3 );
 	void SetArgument( int idx, float4 );
-	void SetFirstArgument( cl_mem* buffer ) { argIdx = 0; SetArgument( 0, buffer ); }
-	void SetFirstArgument( Buffer* buffer ) { argIdx = 0; SetArgument( 0, buffer ); }
-	void SetFirstArgument( float v ) { argIdx = 0; SetArgument( 0, v ); }
-	void SetFirstArgument( int v ) { argIdx = 0; SetArgument( 0, v ); }
-	void SetFirstArgument( float2 v ) { argIdx = 0; SetArgument( 0, v ); }
-	void SetFirstArgument( float3 v ) { argIdx = 0; SetArgument( 0, v ); }
-	void SetFirstArgument( float4 v ) { argIdx = 0; SetArgument( 0, v ); }
-	void SetNextArgument( cl_mem* buffer ) { SetArgument( ++argIdx, buffer ); }
-	void SetNextArgument( Buffer* buffer ) { SetArgument( ++argIdx, buffer ); }
-	void SetNextArgument( float v ) { SetArgument( ++argIdx, v ); }
-	void SetNextArgument( int v ) { SetArgument( ++argIdx, v ); }
-	void SetNextArgument( float2 v ) { SetArgument( ++argIdx, v ); }
-	void SetNextArgument( float3 v ) { SetArgument( ++argIdx, v ); }
-	void SetNextArgument( float4 v ) { SetArgument( ++argIdx, v ); }
+	// other methods
+public:
 	static bool InitCL();
 	static void CheckCLStarted();
 	static void KillCL();
 private:
 	// data members
+	Buffer* acqBuffer = 0;
 	cl_kernel kernel;
 	cl_mem vbo_cl;
 	cl_program program;
-	bool arg0set = false;
-	int argIdx = 0;
 	inline static cl_device_id device;
 	inline static cl_context context; // simplifies some things, but limits us to one device
 	inline static cl_command_queue queue, queue2;
