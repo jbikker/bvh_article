@@ -1014,18 +1014,20 @@ static cl_int getPlatformID( cl_platform_id* platform )
 
 // Buffer constructor
 // ----------------------------------------------------------------------------
-Buffer::Buffer( unsigned int N, unsigned int t, void* ptr )
+Buffer::Buffer( unsigned int N, void* ptr, unsigned int t )
 {
+	if (!Kernel::clStarted) Kernel::InitCL();
 	type = t;
 	ownData = false;
 	int rwFlags = CL_MEM_READ_WRITE;
 	if (t & READONLY) rwFlags = CL_MEM_READ_ONLY;
 	if (t & WRITEONLY) rwFlags = CL_MEM_WRITE_ONLY;
+	aligned = false;
 	if ((t & (TEXTURE | TARGET)) == 0)
 	{
 		size = N;
 		textureID = 0; // not representing a texture
-		deviceBuffer = clCreateBuffer( Kernel::GetContext(), rwFlags, size * 4, 0, 0 );
+		deviceBuffer = clCreateBuffer( Kernel::GetContext(), rwFlags, size, 0, 0 );
 		hostBuffer = (uint*)ptr;
 	}
 	else
@@ -1046,7 +1048,7 @@ Buffer::~Buffer()
 {
 	if (ownData)
 	{
-		delete hostBuffer;
+		FREE64( hostBuffer );
 		hostBuffer = 0;
 	}
 	if ((type & (TEXTURE | TARGET)) == 0) clReleaseMemObject( deviceBuffer );
@@ -1057,7 +1059,7 @@ Buffer::~Buffer()
 void Buffer::CopyToDevice( bool blocking )
 {
 	cl_int error;
-	CHECKCL( error = clEnqueueWriteBuffer( Kernel::GetQueue(), deviceBuffer, blocking, 0, size * 4, hostBuffer, 0, 0, 0 ) );
+	CHECKCL( error = clEnqueueWriteBuffer( Kernel::GetQueue(), deviceBuffer, blocking, 0, size, hostBuffer, 0, 0, 0 ) );
 }
 
 // CopyToDevice2 method (uses 2nd queue)
@@ -1065,7 +1067,7 @@ void Buffer::CopyToDevice( bool blocking )
 void Buffer::CopyToDevice2( bool blocking, cl_event* eventToSet, const size_t s )
 {
 	cl_int error;
-	CHECKCL( error = clEnqueueWriteBuffer( Kernel::GetQueue2(), deviceBuffer, blocking ? CL_TRUE : CL_FALSE, 0, s == 0 ? (size * 4) : (s * 4), hostBuffer, 0, 0, eventToSet ) );
+	CHECKCL( error = clEnqueueWriteBuffer( Kernel::GetQueue2(), deviceBuffer, blocking ? CL_TRUE : CL_FALSE, 0, s == 0 ? size : s, hostBuffer, 0, 0, eventToSet ) );
 }
 
 // CopyFromDevice method
@@ -1073,15 +1075,20 @@ void Buffer::CopyToDevice2( bool blocking, cl_event* eventToSet, const size_t s 
 void Buffer::CopyFromDevice( bool blocking )
 {
 	cl_int error;
-	if (!hostBuffer) hostBuffer = new uint[size], ownData = true;
-	CHECKCL( error = clEnqueueReadBuffer( Kernel::GetQueue(), deviceBuffer, blocking, 0, size * 4, hostBuffer, 0, 0, 0 ) );
+	if (!hostBuffer) 
+	{
+		hostBuffer = (uint*)MALLOC64( size );
+		ownData = true;
+		aligned = true;
+	}
+	CHECKCL( error = clEnqueueReadBuffer( Kernel::GetQueue(), deviceBuffer, blocking, 0, size, hostBuffer, 0, 0, 0 ) );
 }
 
 // CopyTo
 // ----------------------------------------------------------------------------
 void Buffer::CopyTo( Buffer* buffer )
 {
-	clEnqueueCopyBuffer( Kernel::GetQueue(), deviceBuffer, buffer->deviceBuffer, 0, 0, size * 4, 0, 0, 0 );
+	clEnqueueCopyBuffer( Kernel::GetQueue(), deviceBuffer, buffer->deviceBuffer, 0, 0, size, 0, 0, 0 );
 }
 
 // Clear
@@ -1090,11 +1097,11 @@ void Buffer::Clear()
 {
 	uint value = 0;
 #if 0
-	memset( hostBuffer, 0, size * 4 );
+	memset( hostBuffer, 0, size );
 	CopyToDevice();
 #else
 	cl_int error;
-	CHECKCL( error = clEnqueueFillBuffer( Kernel::GetQueue(), deviceBuffer, &value, 4, 0, size * 4, 0, 0, 0 ) );
+	CHECKCL( error = clEnqueueFillBuffer( Kernel::GetQueue(), deviceBuffer, &value, 4, 0, size, 0, 0, 0 ) );
 #endif
 }
 
@@ -1102,7 +1109,7 @@ void Buffer::Clear()
 // ----------------------------------------------------------------------------
 Kernel::Kernel( char* file, char* entryPoint )
 {
-	CheckCLStarted();
+	if (!clStarted) InitCL();
 	// load a cl file
 	string csText = TextFileRead( file );
 	if (csText.size() == 0) FatalError( "File %s not found", file );

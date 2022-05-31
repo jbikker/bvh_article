@@ -26,10 +26,12 @@ public:
 	BVHInstance bvhInstance[256];
 	TLAS tlas;
 	float3* position, *direction, *orientation;
-	float3 p0, p1, p2; // virtual screen plane corners
-	float3* accumulator;
+	float3 p0, p1, p2;	// virtual screen plane corners
 	float* skyPixels;
 	int skyWidth, skyHeight, skyBpp;
+	Kernel* tracer;		// the ray tracing kernel
+	Buffer* target;		// buffer encapsulating texture that holds the rendered image
+	Buffer* skyData;	// buffer for the skydome texture
 };
 
 } // namespace Tmpl8

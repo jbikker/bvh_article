@@ -15,9 +15,6 @@
 
 TheApp* CreateApp() { return new GPGPUApp(); }
 
-Kernel* kernel;
-Buffer* buffer;
-
 // GPGPUApp implementation
 
 void GPGPUApp::Init()
@@ -31,10 +28,10 @@ void GPGPUApp::Init()
 	skyPixels = stbi_loadf( "assets/sky_19.hdr", &skyWidth, &skyHeight, &skyBpp, 0 );
 	for (int i = 0; i < skyWidth * skyHeight * 3; i++) skyPixels[i] = sqrtf( skyPixels[i] );
 	// prepare OpenCL
-	Kernel::InitCL();
-	kernel = new Kernel( "cl/kernels.cl", "render" );
-	buffer = new Buffer( GetRenderTarget()->ID, Buffer::TARGET );
-	screen = 0; // tells the template to not copy a CPU-side surface over the render target
+	tracer = new Kernel( "cl/kernels.cl", "render" );
+	target = new Buffer( SCRWIDTH * SCRHEIGHT * 4 ); // intermediate screen buffer / render target
+	skyData = new Buffer( skyWidth * skyHeight * 3 * sizeof( float ), skyPixels );
+	skyData->CopyToDevice();
 }
 
 void GPGPUApp::AnimateScene()
@@ -53,14 +50,24 @@ void GPGPUApp::AnimateScene()
 	// update the TLAS
 	tlas.Build();
 }
-
+  
 void GPGPUApp::Tick( float deltaTime )
 {
 	// update the TLAS
 	AnimateScene();
+	// setup screen plane in world space
+	static float angle = 0, ar = (float)SCRWIDTH / SCRHEIGHT; angle += 0.01f;
+	mat4 M1 = mat4::RotateY( angle ), M2 = M1 * mat4::RotateX( -0.65f );
+	p0 = TransformPosition( float3( -1 * ar, 1, 1.5f ), M2 );
+	p1 = TransformPosition( float3( 1 * ar, 1, 1.5f ), M2 );
+	p2 = TransformPosition( float3( -1 * ar, -1, 1.5f ), M2 );
+	float3 camPos = TransformPosition( float3( 0, -2, -8.5f ), M1 );
 	// render the scene using the GPU
-	kernel->SetArguments( buffer, 0 );
-	kernel->Run2D( int2( SCRWIDTH, SCRHEIGHT ) );
+	tracer->SetArguments( target, skyData, camPos, p0, p1, p2 );
+	tracer->Run( SCRWIDTH * SCRHEIGHT );
+	// obtain the rendered result
+	target->CopyFromDevice();
+	memcpy( screen->pixels, target->GetHostPtr(), target->size );
 }
 
 // EOF

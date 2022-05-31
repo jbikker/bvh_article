@@ -239,7 +239,7 @@ struct float3
 	float3( const float a ) : x( a ), y( a ), z( a ) {}
 	float3( const float4 a ) : x( a.x ), y( a.y ), z( a.z ) {}
 	float3( const uint3 a ) : x( (float)a.x ), y( (float)a.y ), z( (float)a.z ) {}
-	union { struct { float x, y, z; }; float cell[3]; };
+	union { struct { float x, y, z, dummy /* to match OpenCL */; }; float cell[3]; };
 	float operator [] ( const int n ) const { return cell[n]; }
 };
 struct ALIGN( 4 ) uchar4
@@ -1146,7 +1146,7 @@ public:
 	enum { DEFAULT = 0, TEXTURE = 8, TARGET = 16, READONLY = 1, WRITEONLY = 2 };
 	// constructor / destructor
 	Buffer() : hostBuffer( 0 ) {}
-	Buffer( unsigned int N, unsigned int t = DEFAULT, void* ptr = 0 );
+	Buffer( unsigned int N, void* ptr = 0, unsigned int t = DEFAULT );
 	~Buffer();
 	cl_mem* GetDevicePtr() { return &deviceBuffer; }
 	unsigned int* GetHostPtr() { return hostBuffer; }
@@ -1158,8 +1158,8 @@ public:
 	// data members
 	unsigned int* hostBuffer;
 	cl_mem deviceBuffer = 0;
-	unsigned int type, size, textureID;
-	bool ownData;
+	unsigned int type, size /* in bytes */, textureID;
+	bool ownData, aligned;
 };
 
 // OpenCL kernel
@@ -1210,54 +1210,54 @@ public:
 	{
 		I(); S( 0, a ); S( 1, b ); S( 2, c ); S( 3, d ); S( 4, e ); S( 5, f ); S( 6, g ); S( 7, h ); S( 8, i );
 	}
-	template<T_ A, T_ B, T_ C, T_ D, T_ E, T_ F, T_ G, T_ H, T_ I, T_ J> 
+	template<T_ A, T_ B, T_ C, T_ D, T_ E, T_ F, T_ G, T_ H, T_ I, T_ J>
 	void SetArguments( A a, B b, C c, D d, E e, F f, G g, H h, I i, J j )
 	{
-		I(); 
+		I();
 		S( 0, a ); S( 1, b ); S( 2, c ); S( 3, d ); S( 4, e );
 		S( 5, f ); S( 6, g ); S( 7, h ); S( 8, i ); S( 9, j );
 	}
 	template<T_ A, T_ B, T_ C, T_ D, T_ E, T_ F, T_ G, T_ H, T_ I, T_ J, T_ K>
 	void SetArguments( A a, B b, C c, D d, E e, F f, G g, H h, I i, J j, K k )
 	{
-		I(); 
+		I();
 		S( 0, a ); S( 1, b ); S( 2, c ); S( 3, d ); S( 4, e ); S( 5, f );
 		S( 6, g ); S( 7, h ); S( 8, i ); S( 9, j ); S( 10, k );
 	}
 	template<T_ A, T_ B, T_ C, T_ D, T_ E, T_ F, T_ G, T_ H, T_ I, T_ J, T_ K, T_ L>
 	void SetArguments( A a, B b, C c, D d, E e, F f, G g, H h, I i, J j, K k, L l )
 	{
-		I(); 
+		I();
 		S( 0, a ); S( 1, b ); S( 2, c ); S( 3, d ); S( 4, e ); S( 5, f );
 		S( 6, g ); S( 7, h ); S( 8, i ); S( 9, j ); S( 10, k ); S( 11, l );
 	}
 	template<T_ A, T_ B, T_ C, T_ D, T_ E, T_ F, T_ G, T_ H, T_ I, T_ J, T_ K, T_ L, T_ M>
 	void SetArguments( A a, B b, C c, D d, E e, F f, G g, H h, I i, J j, K k, L l, M m )
 	{
-		I(); 
+		I();
 		S( 0, a ); S( 1, b ); S( 2, c ); S( 3, d ); S( 4, e ); S( 5, f ); S( 6, g );
 		S( 7, h ); S( 8, i ); S( 9, j ); S( 10, k ); S( 11, l ); S( 12, m );
 	}
 	template<T_ A, T_ B, T_ C, T_ D, T_ E, T_ F, T_ G, T_ H, T_ I, T_ J, T_ K, T_ L, T_ M, T_ N>
 	void SetArguments( A a, B b, C c, D d, E e, F f, G g, H h, I i, J j, K k, L l, M m, N n )
 	{
-		I(); 
+		I();
 		S( 0, a ); S( 1, b ); S( 2, c ); S( 3, d ); S( 4, e ); S( 5, f ); S( 6, g );
 		S( 7, h ); S( 8, i ); S( 9, j ); S( 10, k ); S( 11, l ); S( 12, m ), S( 13, n );
 	}
 	template<T_ A, T_ B, T_ C, T_ D, T_ E, T_ F, T_ G, T_ H, T_ I, T_ J, T_ K, T_ L, T_ M, T_ N, T_ O>
 	void SetArguments( A a, B b, C c, D d, E e, F f, G g, H h, I i, J j, K k, L l, M m, N n, O o )
 	{
-		I(); 
+		I();
 		S( 0, a ); S( 1, b ); S( 2, c ); S( 3, d ); S( 4, e ); S( 5, f ); S( 6, g ); S( 7, h );
-		S( 8, i ); S( 9, j ); S( 10, k ); S( 11, l ); S( 12, m ), S( 13, n ); S(14, o );
+		S( 8, i ); S( 9, j ); S( 10, k ); S( 11, l ); S( 12, m ), S( 13, n ); S( 14, o );
 	}
 	template<T_ A, T_ B, T_ C, T_ D, T_ E, T_ F, T_ G, T_ H, T_ I, T_ J, T_ K, T_ L, T_ M, T_ N, T_ O, T_ P>
 	void SetArguments( A a, B b, C c, D d, E e, F f, G g, H h, I i, J j, K k, L l, M m, N n, O o, P p )
 	{
-		I(); 
+		I();
 		S( 0, a ); S( 1, b ); S( 2, c ); S( 3, d ); S( 4, e ); S( 5, f ); S( 6, g ); S( 7, h );
-		S( 8, i ); S( 9, j ); S( 10, k ); S( 11, l ); S( 12, m ), S( 13, n ); S( 14, o ), S(15, p );
+		S( 8, i ); S( 9, j ); S( 10, k ); S( 11, l ); S( 12, m ), S( 13, n ); S( 14, o ), S( 15, p );
 	}
 	template<T_ T> void S( uint i, T t ) { SetArgument( i, t ); }
 	void I() { acqBuffer = 0; /* nothing to acquire until told otherwise */ }
