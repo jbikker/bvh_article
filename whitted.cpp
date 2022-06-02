@@ -31,7 +31,7 @@ void WhittedApp::Init()
 		bvhInstance[i] = BVHInstance( mesh->bvh, i );
 	tlas = TLAS( bvhInstance, 16 );
 	// create a floating point accumulator for the screen
-	accumulator = new float3[640 * 640];
+	accumulator = new float3[SCRWIDTH * SCRHEIGHT];
 	// load HDR sky
 	int bpp = 0;
 	skyPixels = stbi_loadf( "assets/sky_19.hdr", &skyWidth, &skyHeight, &skyBpp, 0 );
@@ -114,27 +114,28 @@ void WhittedApp::Tick( float deltaTime )
 	static float angle = 0; angle += 0.01f;
 	mat4 M1 = mat4::RotateY( angle ), M2 = M1 * mat4::RotateX( -0.65f );
 	// setup screen plane in world space
-	p0 = TransformPosition( float3( -1, 1, 1.5f ), M2 );
-	p1 = TransformPosition( float3( 1, 1, 1.5f ), M2 );
-	p2 = TransformPosition( float3( -1, -1, 1.5f ), M2 );
+	float aspectRatio = (float)SCRWIDTH / SCRHEIGHT;
+	p0 = TransformPosition( float3( -aspectRatio, 1, 1.5f ), M2 );
+	p1 = TransformPosition( float3( aspectRatio, 1, 1.5f ), M2 );
+	p2 = TransformPosition( float3( -aspectRatio, -1, 1.5f ), M2 );
 	float3 camPos = TransformPosition( float3( 0, -2, -8.5f ), M1 );
 #pragma omp parallel for schedule(dynamic)
-	for (int tile = 0; tile < 6400; tile++)
+	for (int tile = 0; tile < (SCRWIDTH * SCRHEIGHT / 64); tile++)
 	{
 		// render an 8x8 tile
-		int x = tile % 80, y = tile / 80;
+		int x = tile % (SCRWIDTH / 8), y = tile / (SCRWIDTH / 8);
 		Ray ray;
 		ray.O = camPos;
 		for (int v = 0; v < 8; v++) for (int u = 0; u < 8; u++)
 		{
-			uint pixelAddress = x * 8 + u + (y * 8 + v) * 640;
+			uint pixelAddress = x * 8 + u + (y * 8 + v) * SCRWIDTH;
 			accumulator[pixelAddress] = float3( 0 );
 			for( int s = 0; s < 3; s++ )
 			{
 				// setup a primary ray
 				float3 pixelPos = ray.O + p0 +
-					(p1 - p0) * ((x * 8 + u + RandomFloat()) / 640.0f) +
-					(p2 - p0) * ((y * 8 + v + RandomFloat()) / 640.0f);
+					(p1 - p0) * ((x * 8 + u + RandomFloat()) / SCRWIDTH) +
+					(p2 - p0) * ((y * 8 + v + RandomFloat()) / SCRHEIGHT);
 				ray.D = normalize( pixelPos - ray.O );
 				ray.hit.t = 1e30f; // 1e30f denotes 'no hit'
 				accumulator[pixelAddress] += (1.f/3) * Trace( ray );
@@ -142,7 +143,7 @@ void WhittedApp::Tick( float deltaTime )
 		}
 	}
 	// convert the floating point accumulator into pixels
-	for (int i = 0; i < 640 * 640; i++)
+	for (int i = 0; i < SCRWIDTH * SCRHEIGHT; i++)
 	{
 		int r = min( 255, (int)(255 * accumulator[i].x) );
 		int g = min( 255, (int)(255 * accumulator[i].y) );

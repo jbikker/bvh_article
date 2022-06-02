@@ -177,9 +177,9 @@ void BasicBVHApp::Tick( float deltaTime )
 	float3 p0( -1, 1, -15 ), p1( 1, 1, -15 ), p2( -1, -1, -15 );
 	Ray ray;
 	Timer t;
-	for (int y = 0; y < 640; y++) for (int x = 0; x < 640; x++)
+	for (int y = 0; y < SCRHEIGHT; y++) for (int x = 0; x < SCRWIDTH; x++)
 	{
-		float3 pixelPos = p0 + (p1 - p0) * (x / 640.0f) + (p2 - p0) * (y / 640.0f);
+		float3 pixelPos = p0 + (p1 - p0) * (x / (float)SCRWIDTH) + (p2 - p0) * (y / (float)SCRHEIGHT);
 		ray.O = float3( 0, 0, -18 );
 		ray.D = normalize( pixelPos - ray.O );
 		ray.t = 1e30f;

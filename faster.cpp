@@ -270,12 +270,12 @@ void FasterRaysApp::Tick( float deltaTime )
 	float3 p0( -1, 1, 2 ), p1( 1, 1, 2 ), p2( -1, -1, 2 );
 	Ray ray;
 	Timer t;
-	for (int y = 0; y < 640; y += 4) for (int x = 0; x < 640; x += 4)
+	for (int y = 0; y < SCRHEIGHT; y += 4) for (int x = 0; x < SCRWIDTH; x += 4)
 	{
 		for (int v = 0; v < 4; v++) for (int u = 0; u < 4; u++)
 		{
 			ray.O = float3( -1.5f, -0.2f, -2.5f );
-			float3 pixelPos = ray.O + p0 + (p1 - p0) * ((x + u) / 640.0f) + (p2 - p0) * ((y + v) / 640.0f);
+			float3 pixelPos = ray.O + p0 + (p1 - p0) * ((x + u) / (float)SCRWIDTH) + (p2 - p0) * ((y + v) / (float)SCRHEIGHT);
 			ray.D = normalize( pixelPos - ray.O ), ray.t = 1e30f;
 			ray.rD = float3( 1 / ray.D.x, 1 / ray.D.y, 1 / ray.D.z );
 			IntersectBVH( ray );

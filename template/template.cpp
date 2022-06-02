@@ -1126,6 +1126,7 @@ Kernel::Kernel( char* file, char* entryPoint )
 	// warning: this simple system does not handle nested includes.
 	struct Include { int start, end; string file; } includes[64];
 	int Ninc = 0;
+#if 0 // needed for NVIDIA OpenCL 1.0; this no longer is necessary
 	while (1)
 	{
 		// see if any #includes remain
@@ -1158,6 +1159,7 @@ Kernel::Kernel( char* file, char* entryPoint )
 		// repeat until no #includes left
 		csText = tmp;
 	}
+#endif
 	// attempt to compile the loaded and expanded source text
 	const char* source = csText.c_str();
 	size_t size = strlen( source );
@@ -1466,7 +1468,7 @@ void Kernel::SetArgument( int idx, Buffer& buffer ) { CheckCLStarted(); clSetKer
 void Kernel::SetArgument( int idx, int value ) { CheckCLStarted(); clSetKernelArg( kernel, idx, sizeof( int ), &value ); }
 void Kernel::SetArgument( int idx, float value ) { CheckCLStarted(); clSetKernelArg( kernel, idx, sizeof( float ), &value ); }
 void Kernel::SetArgument( int idx, float2 value ) { CheckCLStarted(); clSetKernelArg( kernel, idx, sizeof( float2 ), &value ); }
-void Kernel::SetArgument( int idx, float3 value ) { CheckCLStarted(); clSetKernelArg( kernel, idx, sizeof( float3 ), &value ); }
+void Kernel::SetArgument( int idx, float3 value ) { CheckCLStarted(); float4 tmp( value, 0 ); clSetKernelArg( kernel, idx, sizeof( float4 ), &tmp ); }
 void Kernel::SetArgument( int idx, float4 value ) { CheckCLStarted(); clSetKernelArg( kernel, idx, sizeof( float4 ), &value ); }
 
 // Run method

@@ -21,11 +21,12 @@ void PrettyApp::Init()
 		bvhInstance[i] = BVHInstance( mesh->bvh, i );
 	tlas = TLAS( bvhInstance, 16 );
 	// setup screen plane in world space
-	p0 = TransformPosition( float3( -1, 1, 2 ), mat4::RotateX( 0.5f ) );
-	p1 = TransformPosition( float3( 1, 1, 2 ), mat4::RotateX( 0.5f ) );
-	p2 = TransformPosition( float3( -1, -1, 2 ), mat4::RotateX( 0.5f ) );
+	float aspectRatio = (float)SCRWIDTH / SCRHEIGHT;
+	p0 = TransformPosition( float3( -aspectRatio, 1, 2 ), mat4::RotateX( 0.5f ) );
+	p1 = TransformPosition( float3( aspectRatio, 1, 2 ), mat4::RotateX( 0.5f ) );
+	p2 = TransformPosition( float3( -aspectRatio, -1, 2 ), mat4::RotateX( 0.5f ) );
 	// create a floating point accumulator for the screen
-	accumulator = new float3[640 * 640];
+	accumulator = new float3[SCRWIDTH * SCRHEIGHT];
 }
 
 void PrettyApp::AnimateScene()
@@ -59,26 +60,26 @@ void PrettyApp::Tick( float deltaTime )
 	AnimateScene();
 	// render the scene: multithreaded tiles
 #pragma omp parallel for schedule(dynamic)
-	for (int tile = 0; tile < 6400; tile++)
+	for (int tile = 0; tile < (SCRWIDTH * SCRHEIGHT / 64); tile++)
 	{
 		// render an 8x8 tile
-		int x = tile % 80, y = tile / 80;
+		int x = tile % (SCRWIDTH / 8), y = tile / (SCRWIDTH / 8);
 		Ray ray;
 		ray.O = float3( 0, 3, -6.5f );
 		for (int v = 0; v < 8; v++) for (int u = 0; u < 8; u++)
 		{
 			// setup a primary ray
 			float3 pixelPos = ray.O + p0 +
-				(p1 - p0) * ((x * 8 + u) / 640.0f) +
-				(p2 - p0) * ((y * 8 + v) / 640.0f);
+				(p1 - p0) * ((x * 8 + u) / (float)SCRWIDTH) +
+				(p2 - p0) * ((y * 8 + v) / (float)SCRHEIGHT);
 			ray.D = normalize( pixelPos - ray.O );
 			ray.hit.t = 1e30f; // 1e30f denotes 'no hit'
-			uint pixelAddress = x * 8 + u + (y * 8 + v) * 640;
+			uint pixelAddress = x * 8 + u + (y * 8 + v) * SCRWIDTH;
 			accumulator[pixelAddress] = Trace( ray );
 		}
 	}
 	// convert the floating point accumulator into pixels
-	for( int i = 0; i < 640 * 640; i++ )
+	for( int i = 0; i < SCRWIDTH * SCRHEIGHT; i++ )
 	{
 		int r = min( 255, (int)(255 * accumulator[i].x) );
 		int g = min( 255, (int)(255 * accumulator[i].y) );

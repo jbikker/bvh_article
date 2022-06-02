@@ -355,16 +355,16 @@ void TopLevelApp::Tick( float deltaTime )
 	bvh[0].SetTransform( mat4::Translate( float3( -1.3f, 0, 0 ) ) );
 	bvh[1].SetTransform( mat4::Translate( float3( 1.3f, 0, 0 ) ) * mat4::RotateY( angle ) );
 #pragma omp parallel for schedule(dynamic)
-	for (int tile = 0; tile < 6400; tile++)
+	for (int tile = 0; tile < (SCRWIDTH * SCRHEIGHT / 64); tile++)
 	{
-		int x = tile % 80, y = tile / 80;
+		int x = tile % (SCRWIDTH / 8), y = tile / (SCRWIDTH / 8);
 		Ray ray;
 		ray.O = float3( 0, 0.5f, -4.5f );
 		for (int v = 0; v < 8; v++) for (int u = 0; u < 8; u++)
 		{
 			float3 pixelPos = ray.O + p0 +
-				(p1 - p0) * ((x * 8 + u) / 640.0f) +
-				(p2 - p0) * ((y * 8 + v) / 640.0f);
+				(p1 - p0) * ((x * 8 + u) / (float)SCRWIDTH) +
+				(p2 - p0) * ((y * 8 + v) / (float)SCRHEIGHT);
 			ray.D = normalize( pixelPos - ray.O ), ray.t = 1e30f;
 			tlas.Intersect( ray );
 			uint c = ray.t < 1e30f ? (255 - (int)((ray.t - 3) * 80)) : 0;

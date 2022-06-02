@@ -32,6 +32,13 @@ public:
 	Kernel* tracer;		// the ray tracing kernel
 	Buffer* target;		// buffer encapsulating texture that holds the rendered image
 	Buffer* skyData;	// buffer for the skydome texture
+	Buffer* triData;	// buffer for the mesh Tri data (vertices for intersection)
+	Buffer* triExData;	// buffer for the mesh TriEx data (vertices for shading)
+	Buffer* texData;	// buffer for the brick texture
+	Buffer* tlasData;	// buffer to store the TLAS
+	Buffer* instData;	// buffer for BVHInstance data
+	Buffer* bvhData;	// buffer for BVH node data
+	Buffer* idxData;	// buffer for triangle index data for BVH
 };
 
 } // namespace Tmpl8

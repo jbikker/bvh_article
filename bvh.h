@@ -13,7 +13,7 @@ namespace Tmpl8
 struct Tri { float3 vertex0, vertex1, vertex2; float3 centroid; };
 
 // additional triangle data, for texturing and shading
-struct TriEx { float2 uv0, uv1, uv2; float3 N0, N1, N2; float dummy; };
+struct TriEx { float2 uv0, uv1, uv2; float3 N0, N1, N2; };
 
 // minimalist AABB struct with grow functionality
 struct aabb
@@ -73,9 +73,9 @@ private:
 	void UpdateNodeBounds( uint nodeIdx );
 	float FindBestSplitPlane( BVHNode& node, int& axis, float& splitPos );
 	class Mesh* mesh = 0;
+public:
 	uint* triIdx = 0;
 	uint nodesUsed;
-public:
 	BVHNode* bvhNode = 0;
 };
 
@@ -85,10 +85,10 @@ class Mesh
 public:
 	Mesh() = default;
 	Mesh( const char* objFile, const char* texFile );
-	BVH* bvh;
 	Tri tri[1024];			// triangle data for intersection
 	TriEx triEx[1024];		// triangle data for shading
 	int triCount = 0;
+	BVH* bvh;
 	Surface* texture;
 };
 
@@ -130,6 +130,7 @@ public:
 	void Intersect( Ray& ray );
 private:
 	int FindBestMatch( int* list, int N, int A );
+public:
 	TLASNode* tlasNode = 0;
 	BVHInstance* blas = 0;
 	uint nodesUsed, blasCount;

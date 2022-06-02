@@ -21,6 +21,26 @@ struct Ray
 	struct Intersection hit;	// total ray size: 64 bytes
 };
 
+struct Tri 
+{ 
+	float3 vertex0, vertex1, vertex2; 
+	float3 centroid; 
+};
+
+struct TriEx 
+{ 
+	float2 uv0, uv1, uv2; 
+	float3 N0, N1, N2; 
+};
+
+struct TLASNode
+{
+	float3 aabbMin;
+	uint leftRight; // 2x16 bits
+	float3 aabbMax;
+	uint BLAS;
+};
+
 float3 Trace( struct Ray ray, float* skyPixels )
 {
 	// sample sky
@@ -31,7 +51,13 @@ float3 Trace( struct Ray ray, float* skyPixels )
 	return 0.65f * (float3)(skyPixels[skyIdx * 3], skyPixels[skyIdx * 3 + 1], skyPixels[skyIdx * 3 + 2]);
 }
 
-__kernel void render( __global uint* target, __global float* skyData, float3 camPos, float3 p0, float3 p1, float3 p2 )
+__kernel void render( __global uint* target, __global float* skyPixels,
+	__global struct Tri* triData, __global struct TriEx* triExData,
+	__global uint* texData, __global struct TLASNode* tlasData,
+	__global struct BVHInstance* instData,
+	__global struct BVHNode* bvhNodeData, __global uint* idxData,
+	float3 camPos, float3 p0, float3 p1, float3 p2 
+)
 {
 	// plot a pixel into the target array in GPU memory
 	int threadIdx = get_global_id( 0 );
@@ -47,7 +73,7 @@ __kernel void render( __global uint* target, __global float* skyData, float3 cam
 	ray.D = normalize( pixelPos - ray.O );
 	ray.hit.t = 1e30f; // 1e30f denotes 'no hit'
 	// trace the primary ray
-	float3 color = Trace( ray, skyData );
+	float3 color = Trace( ray, skyPixels );
 	// plot the result
 	target[x + y * SCRWIDTH] = RGB32FtoRGB8( color );
 }

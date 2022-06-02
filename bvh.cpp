@@ -286,6 +286,7 @@ void BVH::Subdivide( uint nodeIdx )
 void BVHInstance::SetTransform( mat4& T )
 {
 	transform = T;
+	transform = T;
 	invTransform = transform.Inverted();
 	// calculate world-space bounds using the new matrix
 	float3 bmin = bvh->bvhNode[0].aabbMin, bmax = bvh->bvhNode[0].aabbMax;
