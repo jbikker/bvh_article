@@ -92,9 +92,9 @@ void main()
 	glfwWindowHint( GLFW_STENCIL_BITS, GL_FALSE );
 	glfwWindowHint( GLFW_RESIZABLE, GL_FALSE /* easier :) */ );
 #ifdef FULLSCREEN
-	window = glfwCreateWindow( SCRWIDTH, SCRHEIGHT, "Tmpl8-2022", glfwGetPrimaryMonitor(), 0 );
+	window = glfwCreateWindow( SCRWIDTH, SCRHEIGHT, "https://jacco.ompf2.com/author/jbikker", glfwGetPrimaryMonitor(), 0 );
 #else
-	window = glfwCreateWindow( SCRWIDTH, SCRHEIGHT, "Tmpl8-2022", 0, 0 );
+	window = glfwCreateWindow( SCRWIDTH, SCRHEIGHT, "https://jacco.ompf2.com/author/jbikker", 0, 0 );
 #endif
 	if (!window) FatalError( "glfwCreateWindow failed." );
 	glfwMakeContextCurrent( window );
@@ -960,6 +960,13 @@ bool CheckCL( cl_int result, const char* file, int line )
 	if (result == CL_INVALID_BUFFER_SIZE) FatalError( "Error: CL_INVALID_BUFFER_SIZE\n%s, line %i", file, line, "OpenCL error" );
 	if (result == CL_INVALID_MIP_LEVEL) FatalError( "Error: CL_INVALID_MIP_LEVEL\n%s, line %i", file, line, "OpenCL error" );
 	if (result == CL_INVALID_GLOBAL_WORK_SIZE) FatalError( "Error: CL_INVALID_GLOBAL_WORK_SIZE\n%s, line %i", file, line, "OpenCL error" );
+	if (result == CL_INVALID_PROPERTY) FatalError( "Error: CL_INVALID_PROPERTY\n%s, line %i", file, line, "OpenCL error" );
+	if (result == CL_INVALID_IMAGE_DESCRIPTOR) FatalError( "Error: CL_INVALID_IMAGE_DESCRIPTOR\n%s, line %i", file, line, "OpenCL error" );
+	if (result == CL_INVALID_COMPILER_OPTIONS) FatalError( "Error: CL_INVALID_COMPILER_OPTIONS\n%s, line %i", file, line, "OpenCL error" );
+	if (result == CL_INVALID_LINKER_OPTIONS) FatalError( "Error: CL_INVALID_LINKER_OPTIONS\n%s, line %i", file, line, "OpenCL error" );
+	if (result == CL_INVALID_DEVICE_PARTITION_COUNT) FatalError( "Error: CL_INVALID_DEVICE_PARTITION_COUNT\n%s, line %i", file, line, "OpenCL error" );
+	if (result == CL_INVALID_PIPE_SIZE) FatalError( "Error: CL_INVALID_PIPE_SIZE\n%s, line %i", file, line, "OpenCL error" );
+	if (result == CL_INVALID_DEVICE_QUEUE) FatalError( "Error: CL_INVALID_DEVICE_QUEUE\n%s, line %i", file, line, "OpenCL error" );
 	return false;
 }
 
@@ -1169,7 +1176,13 @@ Kernel::Kernel( char* file, char* entryPoint )
 	// why does the nvidia compiler not support these:
 	// -cl-nv-maxrregcount=64 not faster than leaving it out (same for 128)
 	// -cl-no-subgroup-ifp ? fails on nvidia.
+#if 1
+	// AMD compatible compilation, thanks Jasper the Winther
+	error = clBuildProgram( program, 0, NULL, "-cl-fast-relaxed-math -cl-mad-enable -cl-single-precision-constant", NULL, NULL );
+
+#else
 	error = clBuildProgram( program, 0, NULL, "-cl-nv-verbose -cl-fast-relaxed-math -cl-mad-enable -cl-single-precision-constant", NULL, NULL );
+#endif
 	// handle errors
 	if (error == CL_SUCCESS)
 	{
@@ -1388,7 +1401,7 @@ bool Kernel::InitCL()
 			if (strstr( d, "titan x" )) isPascal = true;
 		}
 	}
-	else if (strstr( d, "amd" ))
+	else if (strstr( d, "amd" ) || strstr( d, "ellesmere" )) // JdW
 	{
 		isAMD = true;
 	}
