@@ -20,6 +20,8 @@ Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "8. whitted", "whitted.vcxpr
 EndProject
 Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "9. gpgpu", "gpgpu.vcxproj", "{F81339BD-3D43-4B75-B050-095D09DCCE1D}"
 EndProject
+Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "A. massive", "massive.vcxproj", "{78A58550-0D8F-470A-A66B-12E9075D4F9B}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|x64 = Debug|x64
@@ -62,6 +64,10 @@ Global
 		{F81339BD-3D43-4B75-B050-095D09DCCE1D}.Debug|x64.Build.0 = Debug|x64
 		{F81339BD-3D43-4B75-B050-095D09DCCE1D}.Release|x64.ActiveCfg = Release|x64
 		{F81339BD-3D43-4B75-B050-095D09DCCE1D}.Release|x64.Build.0 = Release|x64
+		{78A58550-0D8F-470A-A66B-12E9075D4F9B}.Debug|x64.ActiveCfg = Debug|x64
+		{78A58550-0D8F-470A-A66B-12E9075D4F9B}.Debug|x64.Build.0 = Debug|x64
+		{78A58550-0D8F-470A-A66B-12E9075D4F9B}.Release|x64.ActiveCfg = Release|x64
+		{78A58550-0D8F-470A-A66B-12E9075D4F9B}.Release|x64.Build.0 = Release|x64
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

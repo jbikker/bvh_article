@@ -85,8 +85,8 @@ class Mesh
 public:
 	Mesh() = default;
 	Mesh( const char* objFile, const char* texFile );
-	Tri tri[1024];			// triangle data for intersection
-	TriEx triEx[1024];		// triangle data for shading
+	Tri tri[19500];			// triangle data for intersection
+	TriEx triEx[19500];		// triangle data for shading
 	int triCount = 0;
 	BVH* bvh;
 	Surface* texture;

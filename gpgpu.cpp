@@ -2,8 +2,6 @@
 #include "bvh.h"
 #include "gpgpu.h"
 
-// THIS FILE IS UNDER CONSTRUCTION - WILL BE USED WITH ARTICLE #9
-
 // THIS SOURCE FILE:
 // Code for the article "How to Build a BVH", part 9: GPGPU.
 // This version shows how to render a scene using ray tracing on the

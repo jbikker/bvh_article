@@ -55,8 +55,8 @@ Mesh::Mesh( const char* objFile, const char* texFile )
 {
 	// bare-bones obj file loader; only supports very basic meshes
 	texture = new Surface( texFile );
-	float2 UV[1024];
-	float3 N[1024], P[1024];
+	float2* UV = new float2[11050]; // enough for dragon.obj
+	float3* N = new float3[11050], *P = new float3[19500];
 	int UVs = 0, Ns = 0, Ps = 0, a, b, c, d, e, f, g, h, i;
 	FILE* file = fopen( objFile, "r" );
 	while (!feof( file ))
