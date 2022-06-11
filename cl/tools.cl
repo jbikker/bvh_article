@@ -1,6 +1,236 @@
-﻿// random numbers: seed using WangHash((threadidx+1)*17), then use RandomInt / RandomFloat
-uint WangHash( uint s ) { s = (s ^ 61) ^ (s >> 16), s *= 9, s = s ^ (s >> 4), s *= 0x27d4eb2d, s = s ^ (s >> 15); return s; }
-uint RandomInt( uint* s ) { *s ^= *s << 13, * s ^= *s >> 17, * s ^= *s << 5; return *s; }
-float RandomFloat( uint* s ) { return RandomInt( s ) * 2.3283064365387e-10f; /* = 1 / (2^32-1) */ }
+﻿// using random numbers in GPU code:
+// 1. seed using the thread id and a Wang Hash: seed = WangHash( (threadidx+1)*17 )
+// 2. from there on: use RandomInt / RandomFloat
+uint WangHash( uint s ) 
+{ 
+	s = (s ^ 61) ^ (s >> 16);
+	s *= 9, s = s ^ (s >> 4);
+	s *= 0x27d4eb2d;
+	s = s ^ (s >> 15); 
+	return s; 
+}
+uint RandomInt( uint* s ) // Marsaglia's XOR32 RNG
+{ 
+	*s ^= *s << 13;
+	*s ^= *s >> 17;
+	* s ^= *s << 5; 
+	return *s; 
+}
+float RandomFloat( uint* s ) 
+{ 
+	return RandomInt( s ) * 2.3283064365387e-10f; // = 1 / (2^32-1)
+}
+
+// ray tracing structs
+
+struct Intersection
+{
+	float t;			// intersection distance along ray
+	float u, v;			// barycentric coordinates of the intersection
+	uint instPrim;		// instance index (12 bit) and primitive index (20 bit)
+};
+
+struct Ray
+{
+	float3 O, D, rD;	// in OpenCL, each of these will be padded to 16 bytes
+	struct Intersection hit;
+};
+
+struct Tri
+{
+	float v0x, v0y, v0z;
+	float v1x, v1y, v1z;
+	float v2x, v2y, v2z;
+	float cx, cy, cz;
+};
+
+struct TriEx
+{
+	float2 uv0, uv1, uv2;
+	float N0x, N0y, N0z;
+	float N1x, N1y, N1z;
+	float N2x, N2y, N2z;
+	float dummy;
+};
+
+struct BVHNode
+{
+	float minx, miny, minz;
+	int leftFirst;
+	float maxx, maxy, maxz;
+	int triCount;
+};
+
+struct TLASNode
+{
+	float minx, miny, minz;
+	uint leftRight; // 2x16 bits
+	float maxx, maxy, maxz;
+	uint BLAS;
+};
+
+struct BVHInstance
+{
+	float16 transform;
+	float16 invTransform; // inverse transform
+	uint dummy[16];
+};
+
+// ray tracing helper functions
+
+uint RGB32FtoRGB8( float3 c )
+{
+	int r = (int)(min( c.x, 1.f ) * 255);
+	int g = (int)(min( c.y, 1.f ) * 255);
+	int b = (int)(min( c.z, 1.f ) * 255);
+	return (r << 16) + (g << 8) + b;
+}
+
+void IntersectTri( struct Ray* ray, struct Tri* tri, const uint instPrim )
+{
+	float3 v0 = (float3)(tri->v0x, tri->v0y, tri->v0z);
+	float3 v1 = (float3)(tri->v1x, tri->v1y, tri->v1z);
+	float3 v2 = (float3)(tri->v2x, tri->v2y, tri->v2z);
+	float3 edge1 = v1 - v0, edge2 = v2 - v0;
+	float3 h = cross( ray->D, edge2 );
+	float a = dot( edge1, h );
+	if (a > -0.00001f && a < 0.00001f) return; // ray parallel to triangle
+	float f = 1 / a;
+	float3 s = ray->O - v0;
+	float u = f * dot( s, h );
+	if (u < 0 || u > 1) return;
+	const float3 q = cross( s, edge1 );
+	const float v = f * dot( ray->D, q );
+	if (v < 0 || u + v > 1) return;
+	const float t = f * dot( edge2, q );
+	if (t > 0.0001f && t < ray->hit.t)
+		ray->hit.t = t, ray->hit.u = u,
+		ray->hit.v = v, ray->hit.instPrim = instPrim;
+}
+
+float IntersectAABB( struct Ray* ray, struct BVHNode* node )
+{
+	float tx1 = (node->minx - ray->O.x) * ray->rD.x, tx2 = (node->maxx - ray->O.x) * ray->rD.x;
+	float tmin = min( tx1, tx2 ), tmax = max( tx1, tx2 );
+	float ty1 = (node->miny - ray->O.y) * ray->rD.y, ty2 = (node->maxy - ray->O.y) * ray->rD.y;
+	tmin = max( tmin, min( ty1, ty2 ) ), tmax = min( tmax, max( ty1, ty2 ) );
+	float tz1 = (node->minz - ray->O.z) * ray->rD.z, tz2 = (node->maxz - ray->O.z) * ray->rD.z;
+	tmin = max( tmin, min( tz1, tz2 ) ), tmax = min( tmax, max( tz1, tz2 ) );
+	if (tmax >= tmin && tmin < ray->hit.t && tmax > 0) return tmin; else return 1e30f;
+}
+
+// BVH traversal
+
+void BVHIntersect( struct Ray* ray, uint instanceIdx,
+	struct Tri* tri, struct BVHNode* bvhNode, uint* triIdx )
+{
+	struct BVHNode* node = &bvhNode[0], * stack[32];
+	uint stackPtr = 0;
+	while (1)
+	{
+		if (node->triCount > 0) // isLeaf()
+		{
+			for (uint i = 0; i < node->triCount; i++)
+			{
+				uint instPrim = (instanceIdx << 20) + triIdx[node->leftFirst + i];
+				IntersectTri( ray, &tri[instPrim & 0xfffff /* 20 bits */], instPrim );
+			}
+			if (stackPtr == 0) break; else node = stack[--stackPtr];
+			continue;
+		}
+		struct BVHNode* child1 = &bvhNode[node->leftFirst];
+		struct BVHNode* child2 = &bvhNode[node->leftFirst + 1];
+		float dist1 = IntersectAABB( ray, child1 );
+		float dist2 = IntersectAABB( ray, child2 );
+		if (dist1 > dist2)
+		{
+			float d = dist1; dist1 = dist2; dist2 = d;
+			struct BVHNode* c = child1; child1 = child2; child2 = c;
+		}
+		if (dist1 == 1e30f)
+		{
+			if (stackPtr == 0) break; else node = stack[--stackPtr];
+		}
+		else
+		{
+			node = child1;
+			if (dist2 != 1e30f) stack[stackPtr++] = child2;
+		}
+	}
+}
+
+void TransformRay( struct Ray* ray, float16* invTransform )
+{
+	// do the transform
+	ray->D = (float3)(
+		dot( invTransform->s012, ray->D ),
+		dot( invTransform->s456, ray->D ),
+		dot( invTransform->s89A, ray->D )
+	); // see TransformVector in template.cpp
+	ray->O = (float3)(
+		dot( invTransform->s012, ray->O ) + invTransform->s3,
+		dot( invTransform->s456, ray->O ) + invTransform->s7,
+		dot( invTransform->s89A, ray->O ) + invTransform->sB
+	); // see TransformPosition in template.cpp
+	// update ray direction reciprocals
+	ray->rD = (float3)(1.0f / ray->D.x, 1.0f / ray->D.y, 1.0f / ray->D.z);
+}
+
+void InstanceIntersect( struct Ray* ray, struct BVHInstance* bvhInstance,
+	int blasIdx, struct Tri* tri, struct BVHNode* bvhNode, uint* triIdx )
+{
+	// backup and transform ray using instance transform
+	struct Ray backup = *ray;
+	TransformRay( ray, &bvhInstance->invTransform );
+	// traverse the BLAS
+	BVHIntersect( ray, blasIdx, tri, bvhNode, triIdx );
+	// restore ray without overwriting intersection record
+	backup.hit = ray->hit;
+	*ray = backup;
+}
+
+void TLASIntersect( struct Ray* ray, struct Tri* tri, 
+	struct BVHInstance* bvhInstance, struct TLASNode* tlasNode, 
+	struct BVHNode* bvhNode, uint* triIdx )
+{
+	// initialize reciprocals for TLAS traversal
+	ray->rD = (float3)(1.0f / ray->D.x, 1.0f / ray->D.y, 1.0f / ray->D.z);
+	// use a local stack instead of a recursive function
+	struct TLASNode* node = &tlasNode[0], *stack[32];
+	uint stackPtr = 0;
+	// traversl loop; terminates when the stack is empty
+	while (1)
+	{
+		if (node->leftRight == 0) // isLeaf()
+		{
+			// current node is a leaf: intersect instance
+			InstanceIntersect( ray, &bvhInstance[node->BLAS], node->BLAS, tri, bvhNode, triIdx );
+			// pop a node from the stack; terminate if none left
+			if (stackPtr == 0) break; else node = stack[--stackPtr];
+			continue;
+		}
+		// current node is an interior node: visit child nodes, ordered
+		struct TLASNode* child1 = &tlasNode[node->leftRight & 0xffff];
+		struct TLASNode* child2 = &tlasNode[node->leftRight >> 16];
+		float dist1 = IntersectAABB( ray, child1 );
+		float dist2 = IntersectAABB( ray, child2 );
+		if (dist1 > dist2) 
+		{ 
+			float d = dist1; dist1 = dist2; dist2 = d;
+			struct TLASNode* c = child1; child1 = child2; child2 = c;
+		}
+		if (dist1 == 1e30f)
+		{
+			// missed both child nodes; pop a node from the stack
+			if (stackPtr == 0) break; else node = stack[--stackPtr];
+		}
+		else
+		{
+			// visit near node; push the far node if the ray intersects it
+			node = child1;
+			if (dist2 != 1e30f) stack[stackPtr++] = child2;
+		}
+	}
+}
 
 // EOF

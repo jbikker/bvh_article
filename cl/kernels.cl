@@ -99,6 +99,7 @@ float IntersectAABB( struct Ray* ray, struct BVHNode* node )
 void BVHIntersect( struct Ray* ray, uint instanceIdx, 
 	struct Tri* tri, struct BVHNode* bvhNode, uint* triIdx )
 {
+	ray->rD = (float3)( 1 / ray->D.x, 1 / ray->D.y, 1 / ray->D.z );
 	struct BVHNode* node = &bvhNode[0], *stack[32];
 	uint stackPtr = 0;
 	while (1)

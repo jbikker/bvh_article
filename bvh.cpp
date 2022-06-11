@@ -363,9 +363,9 @@ void TLAS::Build()
 			TLASNode& nodeA = tlasNode[nodeIdxA];
 			TLASNode& nodeB = tlasNode[nodeIdxB];
 			TLASNode& newNode = tlasNode[nodesUsed];
-			newNode.leftRight = nodeIdxA + (nodeIdxB << 16);
 			newNode.aabbMin = fminf( nodeA.aabbMin, nodeB.aabbMin );
 			newNode.aabbMax = fmaxf( nodeA.aabbMax, nodeB.aabbMax );
+			newNode.leftRight = nodeIdxA + (nodeIdxB << 16);
 			nodeIdx[A] = nodesUsed++;
 			nodeIdx[B] = nodeIdx[nodeIndices - 1];
 			B = FindBestMatch( nodeIdx, --nodeIndices, A );
@@ -388,7 +388,7 @@ void TLAS::Intersect( Ray& ray )
 	{
 		if (node->isLeaf())
 		{
-			// current node is a leaf: intersect primitives
+			// current node is a leaf: intersect BLAS
 			blas[node->BLAS].Intersect( ray );
 			// pop a node from the stack; terminate if none left
 			if (stackPtr == 0) break; else node = stack[--stackPtr];

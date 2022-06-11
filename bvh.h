@@ -102,21 +102,21 @@ public:
 	mat4& GetTransform() { return transform; }
 	void Intersect( Ray& ray );
 private:
-	BVH* bvh = 0;
-	uint idx;
 	mat4 transform;
 	mat4 invTransform; // inverse transform
 public:
 	aabb bounds; // in world space
+private:
+	BVH* bvh = 0;
+	uint idx;
+	int dummy[7];
 };
 
 // top-level BVH node
 struct TLASNode
 {
-	float3 aabbMin;
-	uint leftRight; // 2x16 bits
-	float3 aabbMax;
-	uint BLAS;
+	union { struct { float dummy1[3]; uint leftRight; }; float3 aabbMin; };
+	union { struct { float dummy2[3]; uint BLAS; }; float3 aabbMax; };
 	bool isLeaf() { return leftRight == 0; }
 };
 

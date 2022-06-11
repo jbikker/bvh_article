@@ -1223,7 +1223,7 @@ Kernel::Kernel( char* file, char* entryPoint )
 			log[errorPos + 2048] = 0;
 			int lineNr = 0, linePos = 0;
 			char* lns = strstr( log + errorPos, ">:" ), * eol;
-			if (!lns) FatalError( "unkown error text format", log + errorPos ); else
+			if (!lns) FatalError( log + errorPos ); else
 			{
 				lns += 2;
 				while (*lns >= '0' && *lns <= '9') lineNr = lineNr * 10 + (*lns++ - '0');
