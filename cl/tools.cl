@@ -34,6 +34,8 @@ struct Ray
 {
 	float3 O, D, rD;	// in OpenCL, each of these will be padded to 16 bytes
 	struct Intersection hit;
+	int depth;
+	float3 transport;
 };
 
 struct Tri
@@ -84,6 +86,24 @@ uint RGB32FtoRGB8( float3 c )
 	int g = (int)(min( c.y, 1.f ) * 255);
 	int b = (int)(min( c.z, 1.f ) * 255);
 	return (r << 16) + (g << 8) + b;
+}
+
+float3 RGB8toRGB32F( uint c )
+{
+	float s = 1 / 256.0f;
+	int r = (c >> 16) & 255;
+	int g = (c >> 8) & 255;
+	int b = c & 255;
+	return (float3)(r * s, g * s, b * s);
+}
+
+float3 TransformVector( float3* V, float16* T )
+{
+	return (float3)(
+		dot( T->s012, *V ),
+		dot( T->s456, *V ),
+		dot( T->s89A, *V )
+	);
 }
 
 void IntersectTri( struct Ray* ray, struct Tri* tri, const uint instPrim )
