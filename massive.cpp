@@ -20,13 +20,24 @@ TheApp* CreateApp() { return new MassiveApp(); }
 void MassiveApp::Init()
 {
 	mesh = new Mesh( "assets/dragon.obj", "assets/bricks.png" );
-	for (int i = 0; i < 16; i++)
-		bvhInstance[i] = BVHInstance( mesh->bvh, i );
-	tlas = TLAS( bvhInstance, 16 );
 	// load HDR sky
 	int bpp = 0;
 	skyPixels = stbi_loadf( "assets/sky_19.hdr", &skyWidth, &skyHeight, &skyBpp, 0 );
 	for (int i = 0; i < skyWidth * skyHeight * 3; i++) skyPixels[i] = sqrtf( skyPixels[i] );
+	// dragons in the shape of a dragon
+	bvhInstance = new BVHInstance[11042];
+	for( int i = 0; i < 11042; i++ )
+	{
+		bvhInstance[i] = BVHInstance( mesh->bvh, i );
+		bvhInstance[i].SetTransform( 
+			mat4::Translate( mesh->vertices[i] * 0.2f ) * 
+			mat4::Scale( 0.0025f  ) 
+		);
+	}
+	tlas = TLAS( bvhInstance, 11042 );
+	Timer t;
+	tlas.Build();
+	printf( "building TLAS took %.2fms.\n", t.elapsed() * 1000 );
 	// prepare OpenCL
 	tracer = new Kernel( "cl/raytracer.cl", "render" );
 	target = new Buffer( SCRWIDTH * SCRHEIGHT * 4 ); // intermediate screen buffer / render target
@@ -36,8 +47,8 @@ void MassiveApp::Init()
 	triExData = new Buffer( mesh->triCount * sizeof( TriEx ), mesh->triEx );
 	Surface* tex = mesh->texture;
 	texData = new Buffer( tex->width * tex->height * sizeof( uint ), tex->pixels );
-	instData = new Buffer( 256 * sizeof( BVHInstance ), bvhInstance );
-	tlasData = new Buffer( tlas.blasCount * 2 * sizeof( TLASNode ), tlas.tlasNode );
+	instData = new Buffer( 11042 * sizeof( BVHInstance ), bvhInstance );
+	tlasData = new Buffer( 11042 * 2 * sizeof( TLASNode ), tlas.tlasNode );
 	bvhData = new Buffer( mesh->bvh->nodesUsed * sizeof( BVHNode ), mesh->bvh->bvhNode );
 	idxData = new Buffer( mesh->triCount * sizeof( uint ), mesh->bvh->triIdx );
 	triData->CopyToDevice();
@@ -47,28 +58,10 @@ void MassiveApp::Init()
 	bvhData->CopyToDevice();
 	idxData->CopyToDevice();
 }
-
-void MassiveApp::AnimateScene()
-{
-	// animate the scene
-	static float a[16] = { 0 }, h[16] = { 5, 4, 3, 2, 1, 5, 4, 3 }, s[16] = { 0 };
-	for (int i = 0, x = 0; x < 4; x++) for (int y = 0; y < 4; y++, i++)
-	{
-		mat4 R, T = mat4::Translate( (x - 1.5f) * 2.5f, 0, (y - 1.5f) * 2.5f );
-		if ((x + y) & 1) R = mat4::RotateY( a[i] );
-		else R = mat4::Translate( 0, h[i / 2], 0 );
-		if ((a[i] += (((i * 13) & 7) + 2) * 0.0005f) > 2 * PI) a[i] -= 2 * PI;
-		if ((s[i] -= 0.001f, h[i] += s[i]) < 0) s[i] = 0.1f;
-		bvhInstance[i].SetTransform( T * R * mat4::Scale( 0.02f ) );
-	}
-	// update the TLAS
-	tlas.Build();
-}
-  
+ 
 void MassiveApp::Tick( float deltaTime )
 {
 	// update the TLAS
-	AnimateScene();
 	instData->CopyToDevice();
 	tlasData->CopyToDevice();
 	// setup screen plane in world space

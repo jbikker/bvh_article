@@ -55,13 +55,15 @@ Mesh::Mesh( const char* objFile, const char* texFile )
 {
 	// bare-bones obj file loader; only supports very basic meshes
 	texture = new Surface( texFile );
+	tri = new Tri[19500];
+	triEx = new TriEx[19500];
 	float2* UV = new float2[11050]; // enough for dragon.obj
-	float3* N = new float3[11050], *P = new float3[19500];
+	float3* N = new float3[11050], *P = new float3[11050];
 	int UVs = 0, Ns = 0, Ps = 0, a, b, c, d, e, f, g, h, i;
 	FILE* file = fopen( objFile, "r" );
 	while (!feof( file ))
 	{
-		char line[256] = { 0 };
+		char line[1024] = { 0 };
 		fgets( line, 1023, file );
 		if (line == strstr( line, "vt " )) UVs++,
 			sscanf( line + 3, "%f %f", &UV[UVs].x, &UV[UVs].y );
@@ -80,6 +82,7 @@ Mesh::Mesh( const char* objFile, const char* texFile )
 	}
 	fclose( file );
 	bvh = new BVH( this );
+	vertices = P;
 }
 
 // BVH class implementation
@@ -341,7 +344,7 @@ int TLAS::FindBestMatch( int* list, int N, int A )
 void TLAS::Build()
 {
 	// assign a TLASleaf node to each BLAS
-	int nodeIdx[256], nodeIndices = blasCount;
+	int nodeIdx[11042], nodeIndices = blasCount;
 	nodesUsed = 1;
 	for (uint i = 0; i < blasCount; i++)
 	{

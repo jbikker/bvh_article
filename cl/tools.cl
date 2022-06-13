@@ -106,6 +106,15 @@ float3 TransformVector( float3* V, float16* T )
 	);
 }
 
+float3 TransformPosition( float3* V, float16* T )
+{
+	return (float3)(
+		dot( T->s012, *V ) + T->s3,
+		dot( T->s456, *V ) + T->s7,
+		dot( T->s89A, *V ) + T->sb
+	);
+}
+
 void IntersectTri( struct Ray* ray, struct Tri* tri, const uint instPrim )
 {
 	float3 v0 = (float3)(tri->v0x, tri->v0y, tri->v0z);
@@ -182,16 +191,8 @@ void BVHIntersect( struct Ray* ray, uint instanceIdx,
 void TransformRay( struct Ray* ray, float16* invTransform )
 {
 	// do the transform
-	ray->D = (float3)(
-		dot( invTransform->s012, ray->D ),
-		dot( invTransform->s456, ray->D ),
-		dot( invTransform->s89A, ray->D )
-	); // see TransformVector in template.cpp
-	ray->O = (float3)(
-		dot( invTransform->s012, ray->O ) + invTransform->s3,
-		dot( invTransform->s456, ray->O ) + invTransform->s7,
-		dot( invTransform->s89A, ray->O ) + invTransform->sB
-	); // see TransformPosition in template.cpp
+	ray->D = TransformVector( &ray->D, invTransform );
+	ray->O = TransformPosition( &ray->O, invTransform );
 	// update ray direction reciprocals
 	ray->rD = (float3)(1.0f / ray->D.x, 1.0f / ray->D.y, 1.0f / ray->D.z);
 }

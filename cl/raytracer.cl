@@ -13,7 +13,7 @@ float3 Trace( struct Ray* ray, float* skyPixels,
 {
 	int rayDepth = 0;
 	// bounce until we hit the sky or a diffuse surface
-	while (1)
+	while (rayDepth < 10)
 	{
 		TLASIntersect( ray, triData, instData, tlasData, bvhNodeData, idxData );
 		struct Intersection i = ray->hit;
@@ -49,9 +49,8 @@ float3 Trace( struct Ray* ray, float* skyPixels,
 			// calculate the specular reflection in the intersection point
 			if (rayDepth >= 2) return (float3)( 1, 1, 1 );
 			ray->D = ray->D - 2 * N * dot( N, ray->D );
-			ray->O = I + ray->D * 0.001f;
+			ray->O = I + ray->D * 0.005f;
 			ray->hit.t = 1e30f;
-			rayDepth++;
 		}
 		else
 		{
@@ -61,7 +60,9 @@ float3 Trace( struct Ray* ray, float* skyPixels,
 			L *= 1.0f / dist;
 			return albedo * (ambient + max( 0.0f, dot( N, L ) ) * lightColor * (1.0f / (dist * dist)));
 		}
+		rayDepth++;
 	}
+	return (float3)( 1, 1, 1 );
 }
 
 __kernel void render( __global uint* target, __global float* skyPixels,
@@ -77,16 +78,22 @@ __kernel void render( __global uint* target, __global float* skyPixels,
 	if (threadIdx >= SCRWIDTH * SCRHEIGHT) return;
 	int x = threadIdx % SCRWIDTH;
 	int y = threadIdx / SCRWIDTH;
+	// intialize RNG
+	uint seed = WangHash( threadIdx * 17 + 1 );
 	// create a primary ray for the pixel
 	struct Ray ray;
 	ray.O = camPos;
-	float3 pixelPos = ray.O + p0 +
-		(p1 - p0) * ((float)x / SCRWIDTH) +
-		(p2 - p0) * ((float)y / SCRHEIGHT);
-	ray.D = normalize( pixelPos - ray.O );
-	ray.hit.t = 1e30f; // 1e30f denotes 'no hit'
-	// trace the primary ray
-	float3 color = Trace( &ray, skyPixels, instData, tlasData, texData, triData, triExData, bvhNodeData, idxData );
+	float3 color = (float3)( 0, 0, 0 );
+	for( int i = 0; i < 2; i++ )
+	{
+		float3 pixelPos = ray.O + p0 +
+			(p1 - p0) * (((float)x + RandomFloat( &seed )) / SCRWIDTH) +
+			(p2 - p0) * (((float)y + RandomFloat( &seed )) / SCRHEIGHT);
+		ray.D = normalize( pixelPos - ray.O );
+		ray.hit.t = 1e30f; // 1e30f denotes 'no hit'
+		// trace the primary ray
+		color += 0.5f * Trace( &ray, skyPixels, instData, tlasData, texData, triData, triExData, bvhNodeData, idxData );
+	}
 	// plot the result
 	target[x + y * SCRWIDTH] = RGB32FtoRGB8( color );
 }

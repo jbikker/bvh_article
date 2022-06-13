@@ -9,8 +9,6 @@ class MassiveApp : public TheApp
 public:
 	// game flow methods
 	void Init();
-	void AnimateScene();
-	float3 Trace( Ray& ray, int rayDepth = 0 );
 	void Tick( float deltaTime );
 	void Shutdown() { /* implement if you want to do something on exit */ }
 	// input handling
@@ -23,7 +21,7 @@ public:
 	// data members
 	int2 mousePos;
 	Mesh* mesh;
-	BVHInstance bvhInstance[256];
+	BVHInstance* bvhInstance;
 	TLAS tlas;
 	float3* position, *direction, *orientation;
 	float3 p0, p1, p2;	// virtual screen plane corners
