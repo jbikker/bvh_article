@@ -90,7 +90,7 @@ public:
 	int triCount = 0;
 	BVH* bvh;
 	Surface* texture;
-	float3* vertices;
+	float3* P, *N;
 };
 
 // instance of a BVH, with transform and world bounds

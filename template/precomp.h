@@ -39,7 +39,7 @@ using namespace std;
 #define VC_EXTRALEAN
 #endif
 #define NOGDICAPMASKS
-#define NOVIRTUALKEYCODES
+// #define NOVIRTUALKEYCODES
 #define NOWINMESSAGES
 #define NOWINSTYLES
 #define NOSYSMETRICS

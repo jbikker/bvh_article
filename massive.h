@@ -9,6 +9,7 @@ class MassiveApp : public TheApp
 public:
 	// game flow methods
 	void Init();
+	void HandleKeys();
 	void Tick( float deltaTime );
 	void Shutdown() { /* implement if you want to do something on exit */ }
 	// input handling

@@ -12,19 +12,16 @@ float3 Trace( struct Ray* ray, float* skyPixels,
 )
 {
 	int rayDepth = 0;
+	float3 R;
 	// bounce until we hit the sky or a diffuse surface
-	while (rayDepth < 10)
+	while (rayDepth < 4)
 	{
 		TLASIntersect( ray, triData, instData, tlasData, bvhNodeData, idxData );
 		struct Intersection i = ray->hit;
 		if (i.t == 1e30f)
 		{
 			// sample sky
-			float phi = atan2( ray->D.z, ray->D.x );
-			uint u = (uint)(3200 * (phi > 0 ? phi : (phi + 2 * PI)) * INV2PI - 0.5f);
-			uint v = (uint)(1600 * acos( ray->D.y ) * INVPI - 0.5f);
-			uint skyIdx = (u + v * 3200) % (3200 * 1600);
-			return 0.65f * (float3)(skyPixels[skyIdx * 3], skyPixels[skyIdx * 3 + 1], skyPixels[skyIdx * 3 + 2]);
+			return SampleSky( &ray->D, skyPixels );
 		}
 		// calculate texture uv based on barycentrics
 		uint triIdx = i.instPrim & 0xfffff;
@@ -41,14 +38,15 @@ float3 Trace( struct Ray* ray, float* skyPixels,
 		float3 N2 = (float3)( tri->N2x, tri->N2y, tri->N2z );
 		float3 N = i.u * N1 + i.v * N2 + (1 - (i.u + i.v)) * N0;
 		N = normalize( TransformVector( &N, &instData[instIdx].transform ) );
-		float3 I = ray->O + i.t * ray->D;
+		float3 I = ray->O + (ray->D * i.t);
 		// shading
 		bool mirror = (instIdx * 17) & 1;
 		if (mirror)
 		{
 			// calculate the specular reflection in the intersection point
-			if (rayDepth >= 2) return (float3)( 1, 1, 1 );
-			ray->D = ray->D - 2 * N * dot( N, ray->D );
+			float3 R = ray->D - (2 * N * dot( N, ray->D ));
+			if (rayDepth == 1) return SampleSky( &R, skyPixels );
+			ray->D = R;
 			ray->O = I + ray->D * 0.005f;
 			ray->hit.t = 1e30f;
 		}
@@ -82,13 +80,13 @@ __kernel void render( __global uint* target, __global float* skyPixels,
 	uint seed = WangHash( threadIdx * 17 + 1 );
 	// create a primary ray for the pixel
 	struct Ray ray;
-	ray.O = camPos;
 	float3 color = (float3)( 0, 0, 0 );
 	for( int i = 0; i < 2; i++ )
 	{
-		float3 pixelPos = ray.O + p0 +
+		float3 pixelPos = p0 +
 			(p1 - p0) * (((float)x + RandomFloat( &seed )) / SCRWIDTH) +
 			(p2 - p0) * (((float)y + RandomFloat( &seed )) / SCRHEIGHT);
+		ray.O = camPos;
 		ray.D = normalize( pixelPos - ray.O );
 		ray.hit.t = 1e30f; // 1e30f denotes 'no hit'
 		// trace the primary ray

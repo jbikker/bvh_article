@@ -34,8 +34,6 @@ struct Ray
 {
 	float3 O, D, rD;	// in OpenCL, each of these will be padded to 16 bytes
 	struct Intersection hit;
-	int depth;
-	float3 transport;
 };
 
 struct Tri
@@ -252,6 +250,17 @@ void TLASIntersect( struct Ray* ray, struct Tri* tri,
 			if (dist2 != 1e30f) stack[stackPtr++] = child2;
 		}
 	}
+}
+
+// skydome
+
+float3 SampleSky( float3* D, float* skyPixels )
+{
+	float phi = atan2( D->z, D->x );
+	uint u = (uint)(3200 * (phi > 0 ? phi : (phi + 2 * PI)) * INV2PI - 0.5f);
+	uint v = (uint)(1600 * acos( D->y ) * INVPI - 0.5f);
+	uint skyIdx = (u + v * 3200) % (3200 * 1600);
+	return 0.65f * (float3)(skyPixels[skyIdx * 3], skyPixels[skyIdx * 3 + 1], skyPixels[skyIdx * 3 + 2]);
 }
 
 // EOF
