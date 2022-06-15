@@ -24,7 +24,6 @@ public:
 	Mesh* mesh;
 	BVHInstance* bvhInstance;
 	TLAS tlas;
-	float3* position, *direction, *orientation;
 	float3 p0, p1, p2;	// virtual screen plane corners
 	float* skyPixels;
 	int skyWidth, skyHeight, skyBpp;

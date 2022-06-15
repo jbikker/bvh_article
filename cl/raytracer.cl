@@ -63,7 +63,9 @@ float3 Trace( struct Ray* ray, float* skyPixels,
 	return (float3)( 1, 1, 1 );
 }
 
-__kernel void render( __global uint* target, __global float* skyPixels,
+__kernel void render( 
+	write_only image2d_t target,
+	__global float* skyPixels,
 	__global struct Tri* triData, __global struct TriEx* triExData,
 	__global uint* texData, __global struct TLASNode* tlasData,
 	__global struct BVHInstance* instData,
@@ -80,20 +82,15 @@ __kernel void render( __global uint* target, __global float* skyPixels,
 	uint seed = WangHash( threadIdx * 17 + 1 );
 	// create a primary ray for the pixel
 	struct Ray ray;
-	float3 color = (float3)( 0, 0, 0 );
-	for( int i = 0; i < 2; i++ )
-	{
-		float3 pixelPos = p0 +
-			(p1 - p0) * (((float)x + RandomFloat( &seed )) / SCRWIDTH) +
-			(p2 - p0) * (((float)y + RandomFloat( &seed )) / SCRHEIGHT);
-		ray.O = camPos;
-		ray.D = normalize( pixelPos - ray.O );
-		ray.hit.t = 1e30f; // 1e30f denotes 'no hit'
-		// trace the primary ray
-		color += 0.5f * Trace( &ray, skyPixels, instData, tlasData, texData, triData, triExData, bvhNodeData, idxData );
-	}
-	// plot the result
-	target[x + y * SCRWIDTH] = RGB32FtoRGB8( color );
+	float3 pixelPos = p0 +
+		(p1 - p0) * (((float)x + RandomFloat( &seed )) / SCRWIDTH) +
+		(p2 - p0) * (((float)y + RandomFloat( &seed )) / SCRHEIGHT);
+	ray.O = camPos;
+	ray.D = normalize( pixelPos - ray.O );
+	ray.hit.t = 1e30f; // 1e30f denotes 'no hit'
+	// trace the primary ray
+	float3 color = Trace( &ray, skyPixels, instData, tlasData, texData, triData, triExData, bvhNodeData, idxData );
+	write_imagef( target, (int2)(x, y), (float4)( color, 1 ) );
 }
 
 // EOF

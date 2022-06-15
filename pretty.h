@@ -24,7 +24,6 @@ public:
 	int2 mousePos;
 	BVHInstance bvhInstance[256];
 	TLAS tlas;
-	float3* position, *direction, *orientation;
 	float3 p0, p1, p2; // virtual screen plane corners
 	float3* accumulator;
 };

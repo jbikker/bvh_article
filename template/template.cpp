@@ -1477,7 +1477,7 @@ void Kernel::SetArgument( int idx, Buffer* buffer )
 		acqBuffer = buffer;
 	}
 }
-void Kernel::SetArgument( int idx, Buffer& buffer ) { CheckCLStarted(); clSetKernelArg( kernel, idx, sizeof( cl_mem ), buffer.GetDevicePtr() ); }
+void Kernel::SetArgument( int idx, Buffer& buffer ) { SetArgument( idx, &buffer ); }
 void Kernel::SetArgument( int idx, int value ) { CheckCLStarted(); clSetKernelArg( kernel, idx, sizeof( int ), &value ); }
 void Kernel::SetArgument( int idx, float value ) { CheckCLStarted(); clSetKernelArg( kernel, idx, sizeof( float ), &value ); }
 void Kernel::SetArgument( int idx, float2 value ) { CheckCLStarted(); clSetKernelArg( kernel, idx, sizeof( float2 ), &value ); }

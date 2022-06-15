@@ -16,35 +16,35 @@ TheApp* CreateApp() { return new MassiveApp(); }
 // MassiveApp implementation
 
 float3 spline[] = {
-	float3( 1.32, 11.351118, 0.306486 ), float3( 0.35, 11.556212, 0.181718 ),
-	float3( -0.92, 11.351118, 2.920882 ), float3( -1.58, 11.551155, 2.189907 ),
-	float3( -5.51, 13.433521, 4.964834 ), float3( -5.82, 13.631571, 4.034665 ),
-	float3( -10.90, 13.482292, 4.525078 ), float3( -10.39, 13.676183, 3.686292 ),
-	float3( -13.15, 15.326061, 2.211351 ), float3( -12.20, 15.516356, 1.957088 ),
-	float3( -12.44, 15.326061, -1.915241 ), float3( -11.92, 15.510509, -1.083209 ),
-	float3( -8.17, 15.475542, -4.712307 ), float3( -7.32, 15.379143, -4.190271 ),
-	float3( -0.19, 13.222962, -6.086272 ), float3( 0.31, 12.718103, -5.384354 ),
-	float3( 8.44, 8.369486, -5.224575 ), float3( 8.01, 7.812713, -4.517200 ),
-	float3( 14.31, 4.713945, -1.889007 ), float3( 13.40, 4.457711, -1.563575 ),
-	float3( 11.81, 4.971652, 6.362038 ), float3( 11.19, 4.647509, 5.644082 ),
-	float3( 10.57, 4.577123, 5.192835 ), float3( 9.85, 4.388953, 4.518766 ),
-	float3( 7.33, 4.658017, 2.137042 ), float3( 6.61, 4.588758, 1.452360 ),
-	float3( 6.01, 4.772368, 0.680937 ), float3( 5.28, 4.703109, -0.003744 ),
-	float3( 3.00, 4.484956, -2.160490 ), float3( 2.27, 4.415697, -2.845171 ),
-	float3( -1.53, 4.274027, -5.490094 ), float3( -1.89, 4.208060, -4.561388 ),
-	float3( -3.63, 4.122736, -3.766097 ), float3( -3.80, 4.057097, -2.783341 ),
-	float3( -4.97, 3.970517, 2.616894 ), float3( -5.38, 3.984730, 3.528281 ),
-	float3( -9.38, 3.969580, 7.474816 ), float3( -8.92, 3.982600, 6.587884 ),
-	float3( -16.17, 5.357972, 7.888516 ), float3( -15.37, 5.370846, 7.290439 ),
-	float3( -27.30, 10.082348, -1.142666 ), float3( -26.33, 9.995060, -0.888332 ),
-	float3( -30.81, 10.882069, -13.782474 ), float3( -29.94, 10.795755, -13.297065 ),
+	float3( 1.32, 11.35, 0.31 ), float3( 0.35, 11.56, 0.18 ),
+	float3( -0.92, 11.35, 2.92 ), float3( -1.58, 11.55, 2.19 ),
+	float3( -5.51, 13.43, 4.96 ), float3( -5.82, 13.63, 4.03 ),
+	float3( -10.90, 13.48, 4.53 ), float3( -10.39, 13.68, 3.69 ),
+	float3( -13.15, 15.33, 2.21 ), float3( -12.20, 15.52, 1.96 ),
+	float3( -12.44, 15.33, -1.92 ), float3( -11.92, 15.51, -1.08 ),
+	float3( -8.17, 15.48, -4.71 ), float3( -7.32, 15.38, -4.19 ),
+	float3( -0.19, 13.22, -6.09 ), float3( 0.31, 12.72, -5.38 ),
+	float3( 8.44, 8.37, -5.22 ), float3( 8.01, 7.81, -4.52 ),
+	float3( 14.31, 4.71, -1.89 ), float3( 13.40, 4.46, -1.56 ),
+	float3( 11.81, 4.97, 6.36 ), float3( 11.19, 4.65, 5.64 ),
+	float3( 10.57, 4.58, 5.19 ), float3( 9.85, 4.39, 4.52 ),
+	float3( 7.33, 4.66, 2.14 ), float3( 6.61, 4.59, 1.45 ),
+	float3( 6.01, 4.77, 0.68 ), float3( 5.28, 4.70, 0 ),
+	float3( 3.00, 4.48, -2.16 ), float3( 2.27, 4.42, -2.85 ),
+	float3( -1.53, 4.27, -5.49 ), float3( -1.89, 4.21, -4.56 ),
+	float3( -3.63, 4.12, -3.77 ), float3( -3.80, 4.06, -2.78 ),
+	float3( -4.97, 3.97, 2.62 ), float3( -5.38, 3.98, 3.53 ),
+	float3( -9.38, 3.97, 7.47 ), float3( -8.92, 3.98, 6.59 ),
+	float3( -16.17, 5.36, 7.89 ), float3( -15.37, 5.37, 7.29 ),
+	float3( -27.30, 10.08, -1.143 ), float3( -26.33, 10.00, -0.89 ),
+	float3( -30.81, 10.88, -13.78 ), float3( -29.94, 10.80, -13.30 ),
 };
 
 float3 camPos( 0, 0, 0 ), camTarget( 0, 0, 1 );
 
-float3 CatmullRom( const float t, const float3& p0, const float3& p1, const float3& p2, const float3& p3 )
+float3 CatmullRom( float t, float3& p0, float3& p1, float3& p2, float3& p3 )
 {
-	const float3 c = 2 * p0 - 5 * p1 + 4 * p2 - p3, d = 3 * (p1 - p2) + p3 - p0;
+	float3 c = 2 * p0 - 5 * p1 + 4 * p2 - p3, d = 3 * (p1 - p2) + p3 - p0;
 	return 0.5f * (2 * p1 + ((p2 - p0) * t) + (c * t * t) + (d * t * t * t));
 }
 
@@ -87,7 +87,6 @@ void MassiveApp::Init()
 {
 	mesh = new Mesh( "assets/dragon.obj", "assets/bricks.png" );
 	// load HDR sky
-	int bpp = 0;
 	skyPixels = stbi_loadf( "assets/sky_19.hdr", &skyWidth, &skyHeight, &skyBpp, 0 );
 	for (int i = 0; i < skyWidth * skyHeight * 3; i++) skyPixels[i] = sqrtf( skyPixels[i] );
 	// dragons in the shape of a dragon
@@ -108,7 +107,9 @@ void MassiveApp::Init()
 	printf( "building TLAS took %.2fms.\n", t.elapsed() * 1000 );
 	// prepare OpenCL
 	tracer = new Kernel( "cl/raytracer.cl", "render" );
-	target = new Buffer( SCRWIDTH * SCRHEIGHT * 4 ); // intermediate screen buffer / render target
+	target = new Buffer( GetRenderTarget()->ID, 0, Buffer::TARGET );
+	screen = 0;
+	// target = new Buffer( SCRWIDTH * SCRHEIGHT * 4 ); // intermediate screen buffer / render target
 	skyData = new Buffer( skyWidth * skyHeight * 3 * sizeof( float ), skyPixels );
 	skyData->CopyToDevice();
 	triData = new Buffer( mesh->triCount * sizeof( Tri ), mesh->tri );
@@ -155,8 +156,8 @@ void MassiveApp::Tick( float deltaTime )
 	);
 	tracer->Run( SCRWIDTH * SCRHEIGHT );
 	// obtain the rendered result
-	target->CopyFromDevice();
-	memcpy( screen->pixels, target->GetHostPtr(), target->size );
+	// target->CopyFromDevice();
+	// memcpy( screen->pixels, target->GetHostPtr(), target->size );
 }
 
 // EOF

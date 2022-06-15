@@ -22,7 +22,6 @@ void GPGPUApp::Init()
 		bvhInstance[i] = BVHInstance( mesh->bvh, i );
 	tlas = TLAS( bvhInstance, 16 );
 	// load HDR sky
-	int bpp = 0;
 	skyPixels = stbi_loadf( "assets/sky_19.hdr", &skyWidth, &skyHeight, &skyBpp, 0 );
 	for (int i = 0; i < skyWidth * skyHeight * 3; i++) skyPixels[i] = sqrtf( skyPixels[i] );
 	// prepare OpenCL
