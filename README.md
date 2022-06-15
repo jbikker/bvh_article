@@ -42,13 +42,15 @@ https://jacco.ompf2.com/2022/05/27/how-to-build-a-bvh-part-8-whitted-style<br>
 <i>...completing part 7, with full recursive ray tracing, in real-time.</i><br>
 Project: whitted.vcxproj, files: whitted.cpp, whitted.h, bvh.*<br><br>
 
-<b>part 9, GPGPU:</b><br>
+<b>part 9a, GPGPU:</b><br>
 https://jacco.ompf2.com/2022/06/03/how-to-build-a-bvh-part-9a-to-the-gpu<br>
 <i>...which is really a GPGPU tutorial, using BVHs as an example.</i><br>
 Project: gpgpu.vcxproj, files: gpgpu.cpp, gpgpu.h, bvh.*<br><br>
 
-<b>part 10, 'massive':</b><br>
-<i>UNDER CONSTRUCTION</i><br><br>
+<b>part 9b, 'massive':</b><br>
+https://jacco.ompf2.com/2022/06/15/how-to-build-a-bvh-part-9b-massive<br>
+<i>...series finale, with TLAS & BLAS on the GPU. Also: GL/CL interop.</i><br>
+Project: massive.vcxproj, files: massive.cpp, massive.h, raytracer.cl.<br><br>
 
 NOTE: All projects share the same template files and build directories.<br>
 DISCLAIMER: None of this is supposed to be 'production quality'.
