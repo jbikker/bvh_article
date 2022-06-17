@@ -11,7 +11,7 @@ void IntersectTri( Ray& ray, const Tri& tri, const uint instPrim )
 	const float3 edge2 = tri.vertex2 - tri.vertex0;
 	const float3 h = cross( ray.D, edge2 );
 	const float a = dot( edge1, h );
-	if (a > -0.00001f && a < 0.00001f) return; // ray parallel to triangle
+	if (fabs( a ) < 0.00001f) return; // ray parallel to triangle
 	const float f = 1 / a;
 	const float3 s = ray.O - tri.vertex0;
 	const float u = f * dot( s, h );

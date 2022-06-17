@@ -82,14 +82,18 @@ __kernel void render(
 	uint seed = WangHash( threadIdx * 17 + 1 );
 	// create a primary ray for the pixel
 	struct Ray ray;
-	float3 pixelPos = p0 +
-		(p1 - p0) * (((float)x + RandomFloat( &seed )) / SCRWIDTH) +
-		(p2 - p0) * (((float)y + RandomFloat( &seed )) / SCRHEIGHT);
-	ray.O = camPos;
-	ray.D = normalize( pixelPos - ray.O );
-	ray.hit.t = 1e30f; // 1e30f denotes 'no hit'
-	// trace the primary ray
-	float3 color = Trace( &ray, skyPixels, instData, tlasData, texData, triData, triExData, bvhNodeData, idxData );
+	float3 color = (float3)( 0, 0, 0 );
+	for( int i = 0; i < 4; i++ )
+	{
+		float3 pixelPos = p0 +
+			(p1 - p0) * (((float)x + RandomFloat( &seed )) / SCRWIDTH) +
+			(p2 - p0) * (((float)y + RandomFloat( &seed )) / SCRHEIGHT);
+		ray.O = camPos;
+		ray.D = normalize( pixelPos - ray.O );
+		ray.hit.t = 1e30f; // 1e30f denotes 'no hit'
+		// trace the primary ray
+		color += 0.25f * Trace( &ray, skyPixels, instData, tlasData, texData, triData, triExData, bvhNodeData, idxData );
+	}
 	write_imagef( target, (int2)(x, y), (float4)( color, 1 ) );
 }
 

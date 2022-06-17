@@ -75,8 +75,8 @@ using namespace std;
 #define NODEFERWINDOWPOS
 #define NOMCX
 #define NOIME
-// #include "windows.h"
-#include "lib/win_tiny.h" // windows.h replacement for faster builds
+#include "windows.h"
+// #include "lib/win_tiny.h" // windows.h replacement for faster builds (doesn't really help)
 
 // OpenCL headers
 #define CL_USE_DEPRECATED_OPENCL_2_0_APIS // safe; see https://stackoverflow.com/a/28500846

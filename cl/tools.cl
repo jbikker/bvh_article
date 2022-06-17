@@ -121,7 +121,7 @@ void IntersectTri( struct Ray* ray, struct Tri* tri, const uint instPrim )
 	float3 edge1 = v1 - v0, edge2 = v2 - v0;
 	float3 h = cross( ray->D, edge2 );
 	float a = dot( edge1, h );
-	if (a > -0.00001f && a < 0.00001f) return; // ray parallel to triangle
+	if (fabs( a ) < 0.00001f) return; // ray parallel to triangle
 	float f = 1 / a;
 	float3 s = ray->O - v0;
 	float u = f * dot( s, h );
