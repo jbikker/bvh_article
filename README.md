@@ -1,6 +1,8 @@
 Code for "How to Build a BVH"<br><br>
 
-<b>INSTRUCTIONS:</b> Open the "_ bvhdemo.sln" file (all the way at the top!), and make one of the 10 projects the active project. Each project implements one of the 10 articles:
+<b>INSTRUCTIONS:</b> Open the "_ bvhdemo.sln" file (all the way at the top!), and make one of the 10 projects the active project. Note: project files are for Visual Studio 2019; they will convert without issues to 2022 though.
+
+Each project implements one of the 10 articles:
 
 <b>part 1, basics:</b><br>
 https://jacco.ompf2.com/2022/04/13/how-to-build-a-bvh-part-1-basics<br>
