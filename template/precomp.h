@@ -240,7 +240,7 @@ struct float3
 	float3( const float4 a ) : x( a.x ), y( a.y ), z( a.z ) {}
 	float3( const uint3 a ) : x( (float)a.x ), y( (float)a.y ), z( (float)a.z ) {}
 	union { struct { float x, y, z; }; float cell[3]; };
-	float operator [] ( const int n ) const { return cell[n]; }
+	float& operator [] ( const int n ) { return cell[n]; }
 };
 struct ALIGN( 4 ) uchar4
 {

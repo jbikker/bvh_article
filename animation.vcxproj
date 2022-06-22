@@ -39,7 +39,7 @@
          The debug binary is postfixed with _debug to prevent clashes with it's Release counterpart
          for the same Platform. -->
     <OutDir>$(SolutionDir)$(Platform)\</OutDir>
-    <IntDir>$(SolutionDir)$(Platform)\$(Configuration)\</IntDir>
+    <IntDir>$(SolutionDir)build\$(ProjectName)\$(Platform)\$(Configuration)\</IntDir>
     <MultiProcessorCompilation>true</MultiProcessorCompilation>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)'=='Debug'">
