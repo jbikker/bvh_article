@@ -160,21 +160,21 @@ public:
 	{
 		// allocate space for nodes and indices
 		tlas = tlasNodes;			// copy of the original array of tlas nodes
-		bounds = (Bounds*)_aligned_malloc( N * 2 * sizeof( Bounds ), 64 );
+		bounds = (Bounds*)_aligned_malloc( (N + 1) * 2 * sizeof( Bounds ), 64 );
 		blasCount = N;				// blasCount remains constant
 		tlasCount = N;				// tlasCount will grow during aggl. clustering
 		leaf = new uint[N * 2];		// for delete op, we need to know which leaf contains a particular tlas
 		node = (KDNode*)_aligned_malloc( sizeof( KDNode ) * N * 2, 64 ); // pre-allocate kdtree nodes, aligned
 		memset( node, 0, sizeof( KDNode ) * N * 2 );
-		tlasIdx = new uint[N * 2];	// tlas array indirection so we can store ranges of nodes in leaves
+		tlasIdx = new uint[(N + 1) * 2]; // tlas array indirection so we can store ranges of nodes in leaves
 	}
 	void rebuild()
 	{
 		// we'll assume we get the same number of TLAS nodes each time
 		tlasCount = blasCount;
-		for (uint i = 0; i < blasCount; i++)
+		for (uint i = 1; i <= blasCount; i++)
 		{
-			tlasIdx[i] = i + 1;
+			tlasIdx[i - 1] = i;
 			// we only use the bounds of the tlas nodes, so we make a SIMD friendly copy of that data
 			bounds[i].bmin = tlas[i].aabbMin, bounds[i].w0 = 0;
 			bounds[i].bmax = tlas[i].aabbMax, bounds[i].w1 = 0;
@@ -223,7 +223,7 @@ public:
 			node[idx].bmax = fmaxf( node[node[idx].left].bmax, node[node[idx].right].bmax );
 		}
 	}
-	void subdivide( KDNode& node )
+	void subdivide( KDNode& node, uint depth = 0 )
 	{
 		// update node bounds
 		node.bmin = float3( 1e30f ), node.bmax = float3( -1e30f );
@@ -240,13 +240,29 @@ public:
 		// claim left and right child nodes
 		uint axis = dominantAxis( node.bmax - node.bmin );
 		float center = (node.bmin[axis] + node.bmax[axis]) * 0.5f;
+	#if 1
+		// try to balance (works quite well but doesn't seem to pay off)
+		if (node.count > 150)
+		{
+			// count how many would go to the left
+			int leftCount = 0;
+			for( uint i = 0; i < node.count; i++ )
+			{
+				Bounds& tl = bounds[tlasIdx[node.first + i]];
+				float3 P = (tl.bmin + tl.bmax) * 0.5f;
+				if (P[axis] <= center) leftCount++;
+			}
+			float ratio = max( 0.15f, min( 0.85f, (float)leftCount / (float)node.count ) );
+			center = ratio * node.bmin[axis] + (1 - ratio) * node.bmax[axis];
+		}
+	#endif
 		partition( node, center, axis );
 		if (this->node[nodePtr].count == 0 || this->node[nodePtr + 1].count == 0) return; // split failed
 		uint leftIdx = nodePtr;
 		node.left = leftIdx, node.right = leftIdx + 1, nodePtr += 2;
 		node.parax = (node.parax & 0xfffffff8) + axis, node.splitPos = center;
-		subdivide( this->node[leftIdx] );
-		subdivide( this->node[leftIdx + 1] );
+		subdivide( this->node[leftIdx], depth + 1 );
+		subdivide( this->node[leftIdx + 1], depth + 1 );
 	}
 	void partition( KDNode& node, float splitPos, uint axis )
 	{

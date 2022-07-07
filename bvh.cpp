@@ -398,24 +398,22 @@ void TLAS::BuildQuick()
 	nodesUsed = 1;
 	for (uint i = 0; i < blasCount; i++)
 	{
-		nodeIdx[i] = nodesUsed;
 		tlasNode[nodesUsed].aabbMin = blas[i].bounds.bmin;
 		tlasNode[nodesUsed].aabbMax = blas[i].bounds.bmax;
 		tlasNode[nodesUsed].BLAS = i;
 		tlasNode[nodesUsed++].leftRight = 0; // makes it a leaf
 	}
 	// build a kD-tree over the TLAS nodes
-	Timer t;
 	if (!kdtree) kdtree = new KDTree( tlasNode, nodesUsed - 1 /* skip root */ );
+	Timer t;
 	kdtree->rebuild();
+	printf( "kdtree rebuild: %.2fms, ", t.elapsed() * 1000 );
 	// use the kD-tree for fast agglomerative clustering
 	float sa = 1e30f;
-	uint best = 0;
-	int workLeft = blasCount, A = 1, B = kdtree->FindNearest( A, best, sa );
+	uint best = 0, workLeft = blasCount, A, B = kdtree->FindNearest( A = 1, best, sa );
 	while (1)
 	{
-		best = A;
-		int C = kdtree->FindNearest( B, best, sa );
+		int C = kdtree->FindNearest( B, best = A, sa );
 		if (A == C)
 		{
 			// found a pair: create a new TLAS interior node
@@ -427,9 +425,7 @@ void TLAS::BuildQuick()
 			kdtree->removeLeaf( A );
 			kdtree->removeLeaf( B );
 			kdtree->add( A = nodesUsed++ );
-			sa = 1e30f;
-			best = 0;
-			B = kdtree->FindNearest( A, best, sa );
+			B = kdtree->FindNearest( A, best = 0, sa = 1e30f );
 		}
 		else A = B, B = C;
 	}
