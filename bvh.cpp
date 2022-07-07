@@ -1,6 +1,16 @@
 #include "precomp.h"
 #include "bvh.h"
 
+/*
+Performance: 1858ms without kD-tree
+with kDtree:
+- 15s without culling
+- 8.1s with culling
+- 3.4s without removeLeaf refitting
+- 858ms with recursive refitting
+- 836ms with cache alignment
+*/
+
 // functions
 
 void IntersectTri( Ray& ray, const Tri& tri, const uint instPrim )
@@ -321,18 +331,19 @@ TLAS::TLAS( BVHInstance* bvhList, int N )
 	blasCount = N;
 	// allocate TLAS nodes
 	tlasNode = (TLASNode*)_aligned_malloc( sizeof( TLASNode ) * 2 * N, 64 );
+	nodeIdx = new uint[N];
 	nodesUsed = 2;
 }
 
-int TLAS::FindBestMatch( int* list, int N, int A )
+int TLAS::FindBestMatch( int N, int A )
 {
 	// find BLAS B that, when joined with A, forms the smallest AABB
 	float smallest = 1e30f;
 	int bestB = -1;
 	for (int B = 0; B < N; B++) if (B != A)
 	{
-		float3 bmax = fmaxf( tlasNode[list[A]].aabbMax, tlasNode[list[B]].aabbMax );
-		float3 bmin = fminf( tlasNode[list[A]].aabbMin, tlasNode[list[B]].aabbMin );
+		float3 bmax = fmaxf( tlasNode[nodeIdx[A]].aabbMax, tlasNode[nodeIdx[B]].aabbMax );
+		float3 bmin = fminf( tlasNode[nodeIdx[A]].aabbMin, tlasNode[nodeIdx[B]].aabbMin );
 		float3 e = bmax - bmin;
 		float surfaceArea = e.x * e.y + e.y * e.z + e.z * e.x;
 		if (surfaceArea < smallest) smallest = surfaceArea, bestB = B;
@@ -343,7 +354,6 @@ int TLAS::FindBestMatch( int* list, int N, int A )
 void TLAS::Build()
 {
 	// assign a TLASleaf node to each BLAS
-	int nodeIdx[11042], nodeIndices = blasCount;
 	nodesUsed = 1;
 	for (uint i = 0; i < blasCount; i++)
 	{
@@ -354,10 +364,12 @@ void TLAS::Build()
 		tlasNode[nodesUsed++].leftRight = 0; // makes it a leaf
 	}
 	// use agglomerative clustering to build the TLAS
-	int A = 0, B = FindBestMatch( nodeIdx, nodeIndices, A );
+	int nodeIndices = blasCount;
+	int A = 0, B = FindBestMatch( nodeIndices, A );
+	FILE* f = fopen( "pairs.txt", "w" );
 	while (nodeIndices > 1)
 	{
-		int C = FindBestMatch( nodeIdx, nodeIndices, B );
+		int C = FindBestMatch( nodeIndices, B );
 		if (A == C)
 		{
 			// found a pair: create a new TLAS interior node
@@ -368,14 +380,61 @@ void TLAS::Build()
 			newNode.aabbMin = fminf( nodeA.aabbMin, nodeB.aabbMin );
 			newNode.aabbMax = fmaxf( nodeA.aabbMax, nodeB.aabbMax );
 			newNode.leftRight = nodeIdxA + (nodeIdxB << 16);
+			fprintf( f, "%i,%i\n", nodeIdxA, nodeIdxB );
 			nodeIdx[A] = nodesUsed++;
 			nodeIdx[B] = nodeIdx[nodeIndices - 1];
-			B = FindBestMatch( nodeIdx, --nodeIndices, A );
+			B = FindBestMatch( --nodeIndices, A );
+		}
+		else A = B, B = C;
+	}
+	fclose( f );
+	// copy last remaining node to the root node
+	tlasNode[0] = tlasNode[nodeIdx[A]];
+}
+
+void TLAS::BuildQuick()
+{
+	// assign a TLASleaf node to each BLAS
+	nodesUsed = 1;
+	for (uint i = 0; i < blasCount; i++)
+	{
+		nodeIdx[i] = nodesUsed;
+		tlasNode[nodesUsed].aabbMin = blas[i].bounds.bmin;
+		tlasNode[nodesUsed].aabbMax = blas[i].bounds.bmax;
+		tlasNode[nodesUsed].BLAS = i;
+		tlasNode[nodesUsed++].leftRight = 0; // makes it a leaf
+	}
+	// build a kD-tree over the TLAS nodes
+	Timer t;
+	if (!kdtree) kdtree = new KDTree( tlasNode, nodesUsed - 1 /* skip root */ );
+	kdtree->rebuild();
+	// use the kD-tree for fast agglomerative clustering
+	float sa = 1e30f;
+	uint best = 0;
+	int workLeft = blasCount, A = 1, B = kdtree->FindNearest( A, best, sa );
+	while (1)
+	{
+		best = A;
+		int C = kdtree->FindNearest( B, best, sa );
+		if (A == C)
+		{
+			// found a pair: create a new TLAS interior node
+			TLASNode& newNode = tlasNode[nodesUsed];
+			newNode.aabbMin = fminf( tlasNode[A].aabbMin, tlasNode[B].aabbMin );
+			newNode.aabbMax = fmaxf( tlasNode[A].aabbMax, tlasNode[B].aabbMax );
+			newNode.leftRight = A + (B << 16);
+			if (workLeft-- == 2) break; 
+			kdtree->removeLeaf( A );
+			kdtree->removeLeaf( B );
+			kdtree->add( A = nodesUsed++ );
+			sa = 1e30f;
+			best = 0;
+			B = kdtree->FindNearest( A, best, sa );
 		}
 		else A = B, B = C;
 	}
 	// copy last remaining node to the root node
-	tlasNode[0] = tlasNode[nodeIdx[A]];
+	tlasNode[0] = tlasNode[nodesUsed];
 }
 
 void TLAS::Intersect( Ray& ray )

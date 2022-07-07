@@ -745,6 +745,11 @@ float4::float4( const float3& a, const float d )
 	x = a.x, y = a.y, z = a.z;
 	w = d;
 }
+float4::float4( const float3& a )
+{
+	x = a.x, y = a.y, z = a.z;
+	w = 0;
+}
 int4::int4( const int3& a, const int d )
 {
 	x = a.x, y = a.y, z = a.z;
@@ -1082,7 +1087,7 @@ void Buffer::CopyToDevice2( bool blocking, cl_event* eventToSet, const size_t s 
 void Buffer::CopyFromDevice( bool blocking )
 {
 	cl_int error;
-	if (!hostBuffer) 
+	if (!hostBuffer)
 	{
 		hostBuffer = (uint*)MALLOC64( size );
 		ownData = true;
@@ -1467,11 +1472,11 @@ void Kernel::CheckCLStarted()
 // SetArgument methods
 // ----------------------------------------------------------------------------
 void Kernel::SetArgument( int idx, cl_mem* buffer ) { CheckCLStarted(); clSetKernelArg( kernel, idx, sizeof( cl_mem ), buffer ); }
-void Kernel::SetArgument( int idx, Buffer* buffer ) 
-{ 
-	CheckCLStarted(); 
-	clSetKernelArg( kernel, idx, sizeof( cl_mem ), buffer->GetDevicePtr() ); 
-	if (buffer->type & Buffer::TARGET) 
+void Kernel::SetArgument( int idx, Buffer* buffer )
+{
+	CheckCLStarted();
+	clSetKernelArg( kernel, idx, sizeof( cl_mem ), buffer->GetDevicePtr() );
+	if (buffer->type & Buffer::TARGET)
 	{
 		if (acqBuffer) FatalError( "Kernel can take only one texture target buffer argument." );
 		acqBuffer = buffer;

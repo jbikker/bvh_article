@@ -19,22 +19,23 @@ TheApp* CreateApp() { return new BeyondApp(); }
 
 float3 camPos( 0, 0, 0 ), camTarget( 0, 0, 1 );
 
-void BeyondApp::HandleKeys()
+void BeyondApp::HandleKeys( float dt )
 {
 	float3 V = normalize( camTarget - camPos );
 	float3 R = normalize( cross( float3( 0, 1, 0 ), V ) );
 	float3 up = normalize( cross( V, R ) );
-	if (GetAsyncKeyState( 'W' )) camPos += 0.05f * V;
-	if (GetAsyncKeyState( 'S' )) camPos -= 0.05f * V;
-	if (GetAsyncKeyState( 'A' )) camPos += 0.05f * R;
-	if (GetAsyncKeyState( 'D' )) camPos -= 0.05f * R;
-	if (GetAsyncKeyState( 'R' )) camPos += 0.05f * up;
-	if (GetAsyncKeyState( 'F' )) camPos -= 0.05f * up;
+	float s = 0.005f * dt;
+	if (GetAsyncKeyState( 'W' )) camPos += s * V;
+	if (GetAsyncKeyState( 'S' )) camPos -= s * V;
+	if (GetAsyncKeyState( 'A' )) camPos += s * R;
+	if (GetAsyncKeyState( 'D' )) camPos -= s * R;
+	if (GetAsyncKeyState( 'R' )) camPos += s * up;
+	if (GetAsyncKeyState( 'F' )) camPos -= s * up;
 	camTarget = camPos + V;
-	if (GetAsyncKeyState( VK_LEFT )) camTarget += 0.05f * R;
-	if (GetAsyncKeyState( VK_RIGHT )) camTarget -= 0.05f * R;
-	if (GetAsyncKeyState( VK_UP )) camTarget -= 0.02f * up;
-	if (GetAsyncKeyState( VK_DOWN )) camTarget += 0.02f * up;
+	if (GetAsyncKeyState( VK_LEFT )) camTarget += s * R;
+	if (GetAsyncKeyState( VK_RIGHT )) camTarget -= s * R;
+	if (GetAsyncKeyState( VK_UP )) camTarget -= s * 2 * up;
+	if (GetAsyncKeyState( VK_DOWN )) camTarget += s * 2 * up;
 }
 
 void BeyondApp::Init()
@@ -44,21 +45,38 @@ void BeyondApp::Init()
 	skyPixels = stbi_loadf( "assets/sky_19.hdr", &skyWidth, &skyHeight, &skyBpp, 0 );
 	for (int i = 0; i < skyWidth * skyHeight * 3; i++) skyPixels[i] = sqrtf( skyPixels[i] );
 	// dragons in the shape of a dragon
-	bvhInstance = new BVHInstance[11042];
-	for( int i = 0; i < 11042; i++ )
+#if 0
+	bvhInstance = new BVHInstance[16];
+	for (int i = 0; i < 16; i++)
+		bvhInstance[i] = BVHInstance( mesh->bvh, i );
+	tlas = TLAS( bvhInstance, 16 );
+	// animate the scene
+	static float h[16] = { 5, 4, 3, 2, 1, 5, 4, 3 }, s[16] = { 0 };
+	for (int i = 0, x = 0; x < 4; x++) for (int y = 0; y < 4; y++, i++)
 	{
+		mat4 R, T = mat4::Translate( (x - 1.5f) * 2.5f, 0, (y - 1.5f) * 2.5f );
+		if ((x + y) & 1) R = mat4::RotateY( i * 0.2f );
+		else R = mat4::Translate( 0, h[i / 2], 0 );
+		bvhInstance[i].SetTransform( T * R * mat4::Scale( 0.015f ) );
+	}
+#else
+	uint instances = mesh->triCount;
+	bvhInstance = new BVHInstance[instances];
+	for( uint i = 0; i < instances; i++ )
+	{
+		uint f = i; //  * 40 + 2228 + 12 * 2 + 15;
+		float3 P = (mesh->tri[f].vertex0 + mesh->tri[f].vertex1 + mesh->tri[f].vertex2) / 3;
 		bvhInstance[i] = BVHInstance( mesh->bvh, i );
 		bvhInstance[i].SetTransform( 
-			mat4::Translate( mesh->P[i] * 0.2f ) * 
+			mat4::Translate( P * 0.2f ) * 
 			mat4::Scale( 0.0025f  ) *
-			mat4::Rotate( mesh->N[i], 0 ) *
+			mat4::Rotate( mesh->N[i & 1023], 0 ) *
 			mat4::RotateX( PI / 2 )
 		);
 	}
-	tlas = TLAS( bvhInstance, 11042 );
-	Timer t;
-	tlas.Build();
-	printf( "building TLAS took %.2fms.\n", t.elapsed() * 1000 );
+	tlas = TLAS( bvhInstance, instances );
+#endif
+	tlas.BuildQuick();
 	// prepare OpenCL
 	tracer = new Kernel( "cl/raytracer.cl", "render" );
 	target = new Buffer( GetRenderTarget()->ID, 0, Buffer::TARGET );
@@ -69,8 +87,8 @@ void BeyondApp::Init()
 	triExData = new Buffer( mesh->triCount * sizeof( TriEx ), mesh->triEx );
 	Surface* tex = mesh->texture;
 	texData = new Buffer( tex->width * tex->height * sizeof( uint ), tex->pixels );
-	instData = new Buffer( 11042 * sizeof( BVHInstance ), bvhInstance );
-	tlasData = new Buffer( 11042 * 2 * sizeof( TLASNode ), tlas.tlasNode );
+	instData = new Buffer( tlas.blasCount * sizeof( BVHInstance ), bvhInstance );
+	tlasData = new Buffer( tlas.blasCount * 2 * sizeof( TLASNode ), tlas.tlasNode );
 	bvhData = new Buffer( mesh->bvh->nodesUsed * sizeof( BVHNode ), mesh->bvh->bvhNode );
 	idxData = new Buffer( mesh->triCount * sizeof( uint ), mesh->bvh->triIdx );
 	triData->CopyToDevice();
@@ -84,8 +102,13 @@ void BeyondApp::Init()
  
 void BeyondApp::Tick( float deltaTime )
 {
+	// rebuild the TLAS
+	Timer t;
+	tlas.BuildQuick();
+	printf( "TLAS update took %.2fms\n", t.elapsed() * 1000 );
+	tlasData->CopyToDevice();
 	// construct camera matrix
-	HandleKeys();
+	HandleKeys( deltaTime );
 	mat4 M = mat4::LookAt( camPos, camTarget );
 	static float ar = (float)SCRWIDTH / SCRHEIGHT;
 	p0 = TransformPosition( float3( -1 * ar, 1, 1.5f ), M );

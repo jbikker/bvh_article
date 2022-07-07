@@ -128,18 +128,14 @@ void WhittedApp::Tick( float deltaTime )
 		ray.O = camPos;
 		for (int v = 0; v < 8; v++) for (int u = 0; u < 8; u++)
 		{
+			// setup a primary ray
+			float3 pixelPos = ray.O + p0 +
+				(p1 - p0) * ((x * 8 + u + RandomFloat()) / SCRWIDTH) +
+				(p2 - p0) * ((y * 8 + v + RandomFloat()) / SCRHEIGHT);
+			ray.D = normalize( pixelPos - ray.O );
+			ray.hit.t = 1e30f; // 1e30f denotes 'no hit'
 			uint pixelAddress = x * 8 + u + (y * 8 + v) * SCRWIDTH;
-			accumulator[pixelAddress] = float3( 0 );
-			for( int s = 0; s < 3; s++ )
-			{
-				// setup a primary ray
-				float3 pixelPos = ray.O + p0 +
-					(p1 - p0) * ((x * 8 + u + RandomFloat()) / SCRWIDTH) +
-					(p2 - p0) * ((y * 8 + v + RandomFloat()) / SCRHEIGHT);
-				ray.D = normalize( pixelPos - ray.O );
-				ray.hit.t = 1e30f; // 1e30f denotes 'no hit'
-				accumulator[pixelAddress] += (1.f/3) * Trace( ray );
-			}
+			accumulator[pixelAddress] = Trace( ray );
 		}
 	}
 	// convert the floating point accumulator into pixels
