@@ -103,10 +103,14 @@ void BeyondApp::Init()
 void BeyondApp::Tick( float deltaTime )
 {
 	// rebuild the TLAS
-	Timer t;
-	tlas.BuildQuick();
-	printf( "TLAS update took %.2fms\n", t.elapsed() * 1000 );
-	tlasData->CopyToDevice();
+	static int frameCount = 15;
+	if (frameCount-- > 0)
+	{
+		Timer t;
+		tlas.BuildQuick();
+		printf( "TLAS update took %.2fms\n", t.elapsed() * 1000 );
+		tlasData->CopyToDevice();
+	}
 	// construct camera matrix
 	HandleKeys( deltaTime );
 	mat4 M = mat4::LookAt( camPos, camTarget );

@@ -180,7 +180,6 @@ public:
 			bounds[i].bmin = tlas[i].aabbMin, bounds[i].w0 = 0;
 			bounds[i].bmax = tlas[i].aabbMax, bounds[i].w1 = 0;
 		}
-		printf( "bounds: %.2fms ", t.elapsed() );
 		// subdivide root node
 		node[0].first = 0, node[0].count = blasCount, node[0].parax = 7;
 		nodePtr = 1;				// root = 0, so node 1 is the first node we can create
@@ -388,6 +387,8 @@ public:
 		__m128& tlasAbmin4 = state.tlasAbmin4;
 		__m128& tlasAbmax4 = state.tlasAbmax4;
 		tlasAbmin4 = bounds[A].bmin4, tlasAbmax4 = bounds[A].bmax4;
+		float3 tlasAbmin = *(float3*)&state.tlasAbmin4;
+		float3 tlasAbmax = *(float3*)&state.tlasAbmax4;
 		__m128& Pa4 = state.Pa4;
 		Pa4 = _mm_mul_ps( _mm_set_ps1( 0.5f ), _mm_add_ps( tlasAbmin4, tlasAbmax4 ) );
 		const __m128 half4 = _mm_set_ps1( 0.5f );
@@ -405,9 +406,17 @@ public:
 					{
 						uint B = tlasIdx[node[n].first + i];
 						if (B == A) continue;
-						const __m128 size4 = _mm_sub_ps( _mm_max_ps( tlasAbmax4, bounds[B].bmax4 ), _mm_min_ps( tlasAbmax4, bounds[B].bmin4 ) );
+						// calculate surface area of union of A and B
+					#if 0
+						// scalar version
+						const float3 size = fmaxf( tlasAbmax, bounds[B].bmax ) - fminf( tlasAbmin, bounds[B].bmin );
+						const float SA = size.x * size.y + size.y * size.z + size.z * size.x;
+					#else
+						// SSE version
+						const __m128 size4 = _mm_sub_ps( _mm_max_ps( tlasAbmax4, bounds[B].bmax4 ), _mm_min_ps( tlasAbmin4, bounds[B].bmin4 ) );
 						const float SA = size4.m128_f32[0] * size4.m128_f32[1] + size4.m128_f32[1] * size4.m128_f32[2] +
 							size4.m128_f32[2] * size4.m128_f32[0];
+					#endif
 						if (SA < smallestSA) smallestSA = SA, bestB = B;
 					}
 					break;
@@ -422,7 +431,7 @@ public:
 				const float sa1 = d4a.m128_f32[0] * d4a.m128_f32[1] + d4a.m128_f32[1] * d4a.m128_f32[2] + d4a.m128_f32[2] * d4a.m128_f32[0];
 				const float sa2 = d4b.m128_f32[0] * d4b.m128_f32[1] + d4b.m128_f32[1] * d4b.m128_f32[2] + d4b.m128_f32[2] * d4b.m128_f32[0];
 				const float diff1 = sa1 - smallestSA, diff2 = sa2 - smallestSA;
-				const uint visit = (*(uint*)&diff1 >> 31) * 2 + (*(uint*)&diff2 >> 31);
+				const uint visit = (diff1 < 0) * 2 + (diff2 < 0);
 				if (!visit) break;
 				if (visit == 3) stack[stackPtr++] = farNode, n = nearNode;
 				else if (visit == 2) n = nearNode; else n = farNode;
