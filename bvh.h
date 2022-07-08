@@ -172,6 +172,7 @@ public:
 	{
 		// we'll assume we get the same number of TLAS nodes each time
 		tlasCount = blasCount;
+		Timer t;
 		for (uint i = 1; i <= blasCount; i++)
 		{
 			tlasIdx[i - 1] = i;
@@ -179,6 +180,7 @@ public:
 			bounds[i].bmin = tlas[i].aabbMin, bounds[i].w0 = 0;
 			bounds[i].bmax = tlas[i].aabbMax, bounds[i].w1 = 0;
 		}
+		printf( "bounds: %.2fms ", t.elapsed() );
 		// subdivide root node
 		node[0].first = 0, node[0].count = blasCount, node[0].parax = 7;
 		nodePtr = 1;				// root = 0, so node 1 is the first node we can create
@@ -419,7 +421,8 @@ public:
 				const __m128 d4b = _mm_max_ps( extentA4, _mm_sub_ps( v0b, _mm_add_ps( node[farNode].minSize4, halfExtentA4 ) ) );
 				const float sa1 = d4a.m128_f32[0] * d4a.m128_f32[1] + d4a.m128_f32[1] * d4a.m128_f32[2] + d4a.m128_f32[2] * d4a.m128_f32[0];
 				const float sa2 = d4b.m128_f32[0] * d4b.m128_f32[1] + d4b.m128_f32[1] * d4b.m128_f32[2] + d4b.m128_f32[2] * d4b.m128_f32[0];
-				const uint visit = signbit( sa1 - smallestSA ) * 2 + signbit( sa2 - smallestSA );
+				const float diff1 = sa1 - smallestSA, diff2 = sa2 - smallestSA;
+				const uint visit = (*(uint*)&diff1 >> 31) * 2 + (*(uint*)&diff2 >> 31);
 				if (!visit) break;
 				if (visit == 3) stack[stackPtr++] = farNode, n = nearNode;
 				else if (visit == 2) n = nearNode; else n = farNode;
