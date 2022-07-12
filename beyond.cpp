@@ -64,7 +64,7 @@ void BeyondApp::Init()
 	bvhInstance = new BVHInstance[instances];
 	for( uint i = 0; i < instances; i++ )
 	{
-		uint f = i; //  * 40 + 2228 + 12 * 2 + 15;
+		uint f = i;
 		float3 P = (mesh->tri[f].vertex0 + mesh->tri[f].vertex1 + mesh->tri[f].vertex2) / 3;
 		bvhInstance[i] = BVHInstance( mesh->bvh, i );
 		bvhInstance[i].SetTransform( 
@@ -98,12 +98,20 @@ void BeyondApp::Init()
 	bvhData->CopyToDevice();
 	idxData->CopyToDevice();
 	tlasData->CopyToDevice();
+	// fetch camera
+	FILE* f = fopen( "camera.bin", "rb" );
+	if (f)
+	{
+		fread( &camPos, 1, sizeof( camPos ), f );
+		fread( &camTarget, 1, sizeof( camTarget ), f );
+		fclose( f );
+	}
 }
  
 void BeyondApp::Tick( float deltaTime )
 {
 	// rebuild the TLAS
-	static int frameCount = 15;
+	static int frameCount = 1500;
 	if (frameCount-- > 0)
 	{
 		Timer t;
@@ -125,6 +133,14 @@ void BeyondApp::Tick( float deltaTime )
 		camPos, p0, p1, p2 
 	);
 	tracer->Run( SCRWIDTH * SCRHEIGHT );
+}
+
+void BeyondApp::Shutdown()
+{
+	FILE* f = fopen( "camera.bin", "wb" );
+	fwrite( &camPos, 1, sizeof( camPos ), f );
+	fwrite( &camTarget, 1, sizeof( camTarget ), f );
+	fclose( f );
 }
 
 // EOF

@@ -11,7 +11,7 @@ public:
 	void Init();
 	void HandleKeys( float dt );
 	void Tick( float deltaTime );
-	void Shutdown() { /* implement if you want to do something on exit */ }
+	void Shutdown();
 	// input handling
 	void MouseUp( int button ) { /* implement if you want to detect mouse button presses */ }
 	void MouseDown( int button ) { /* implement if you want to detect mouse button presses */ }

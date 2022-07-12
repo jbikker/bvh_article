@@ -116,8 +116,8 @@ private:
 // top-level BVH node
 struct TLASNode
 {
-	union { struct { float dummy1[3]; uint leftRight; }; struct { float dummy3[3]; unsigned short left, right; }; float3 aabbMin; };
-	union { struct { float dummy2[3]; uint BLAS; }; float3 aabbMax; };
+	union { struct { float dummy1[3]; uint leftRight; }; struct { float dummy3[3]; unsigned short left, right; }; float3 aabbMin; __m128 aabbMin4; };
+	union { struct { float dummy2[3]; uint BLAS; }; float3 aabbMax; __m128 aabbMax4; };
 	bool isLeaf() { return leftRight == 0; }
 };
 
@@ -129,89 +129,52 @@ public:
 	{
 		union
 		{
-			struct { uint left, right, parax; float splitPos; };	// for an interior node
-			struct { uint first, count, dummy1, dummy2; };			// for a leaf node, 16 bytes
+			struct { uint left, right, parax; float splitPos; };			// for an interior node
+			struct { uint first, count, dummy1, dummy2; };					// for a leaf node, 16 bytes
 		};
-		union
-		{
-			__m128 bmin4; struct { float3 bmin; float w0; };
-		};															// 16 bytes
-		union
-		{
-			__m128 bmax4; struct { float3 bmax; float w1; };
-		};															// 16 bytes
-		union
-		{
-			__m128 minSize4; struct { float3 minSize; float w2; };
-		};															// 16 bytes, total: 64 bytes
+		union { __m128 bmin4; struct { float3 bmin; float w0; }; };			// 16 bytes
+		union { __m128 bmax4; struct { float3 bmax; float w1; }; };			// 16 bytes
+		union { __m128 minSize4; struct { float3 minSize; float w2; }; };	// 16 bytes, total: 64 bytes
 		bool isLeaf() { return (parax & 7) > 3; }
-	};
-	struct Bounds
-	{
-		union { __m128 bmin4; struct { float3 bmin; float w0; }; };
-		union { __m128 bmax4; struct { float3 bmax; float w1; }; };
 	};
 	void swap( const uint a, const uint b )
 	{
 		uint t = tlasIdx[a]; tlasIdx[a] = tlasIdx[b]; tlasIdx[b] = t;
 	}
 	KDTree() = default;
-	KDTree( TLASNode* tlasNodes, const uint N )
+	KDTree( TLASNode* tlasNodes, const uint N, const uint O )
 	{
 		// allocate space for nodes and indices
 		tlas = tlasNodes;			// copy of the original array of tlas nodes
-		bounds = (Bounds*)_aligned_malloc( (N + 1) * 2 * sizeof( Bounds ), 64 );
 		blasCount = N;				// blasCount remains constant
 		tlasCount = N;				// tlasCount will grow during aggl. clustering
-		leaf = new uint[N * 2];		// for delete op, we need to know which leaf contains a particular tlas
+		offset = O;					// index of the first TLAS node in the array
+		leaf = new uint[200000];		// for delete op, we need to know which leaf contains a particular tlas
 		node = (KDNode*)_aligned_malloc( sizeof( KDNode ) * N * 2, 64 ); // pre-allocate kdtree nodes, aligned
-		memset( node, 0, sizeof( KDNode ) * N * 2 );
-		tlasIdx = new uint[(N + 1) * 2]; // tlas array indirection so we can store ranges of nodes in leaves
+		tlasIdx = new uint[N * 2 + 64]; // tlas array indirection so we can store ranges of nodes in leaves
 	}
 	void rebuild()
 	{
 		// we'll assume we get the same number of TLAS nodes each time
 		tlasCount = blasCount;
-		Timer t;
-		for (uint i = 1; i <= blasCount; i++)
-		{
-			tlasIdx[i - 1] = i;
-			// we only use the bounds of the tlas nodes, so we make a SIMD friendly copy of that data
-			bounds[i].bmin = tlas[i].aabbMin, bounds[i].w0 = 0;
-			bounds[i].bmax = tlas[i].aabbMax, bounds[i].w1 = 0;
-		}
+		for (uint i = 0; i < blasCount; i++) tlasIdx[i] = i;
 		// subdivide root node
 		node[0].first = 0, node[0].count = blasCount, node[0].parax = 7;
 		nodePtr = 1;				// root = 0, so node 1 is the first node we can create
 		subdivide( node[0] );		// recursively subdivide the root node
-		// refit cluster and leaf minima
-		minRefit();
-	}
-	void minRefit()
-	{
 		// "each node keeps it's cluster's minimum box sizes in each axis"
 		for (int i = nodePtr - 1; i >= 0; i--) if (node[i].isLeaf())
 		{
 			node[i].minSize = float3( 1e30f );
-			node[i].bmin = float3( 1e30f );
-			node[i].bmax = float3( -1e30f );
 			for (uint j = 0; j < node[i].count; j++)
 			{
 				uint idx = tlasIdx[node[i].first + j];
-				leaf[idx] = i;		// remember that we can find tlas[idx] in node[i], which is a leaf
-				float3 tlSize = 0.5f* (bounds[idx].bmax - bounds[idx].bmin);
-				float3 C = (bounds[idx].bmax + bounds[idx].bmin) * 0.5f;
-				node[i].minSize = fminf( node[i].minSize, tlSize );
-				node[i].bmin = fminf( node[i].bmin, C );
-				node[i].bmax = fmaxf( node[i].bmax, C );
+				leaf[idx] = i;	// we can find tlas[idx] in leaf node[i]
+				float3 tlSize = 0.5f * (tlas[idx].aabbMax - tlas[idx].aabbMin);
+				node[i].minSize = fminf( node[i].minSize, tlSize );			
 			}
 		}
-		else
-		{
-			node[i].minSize = fminf( node[node[i].left].minSize, node[node[i].right].minSize );
-			node[i].bmin = fminf( node[node[i].left].bmin, node[node[i].right].bmin );
-			node[i].bmax = fmaxf( node[node[i].left].bmax, node[node[i].right].bmax );
-		}
+		else node[i].minSize = fminf( node[node[i].left].minSize, node[node[i].right].minSize );
 	}
 	void recurseRefit( uint idx )
 	{
@@ -231,9 +194,9 @@ public:
 		node.minSize = float3( 1e30f );
 		for (uint i = 0; i < node.count; i++)
 		{
-			Bounds& tln = bounds[tlasIdx[node.first + i]];
-			float3 C = (tln.bmin + tln.bmax) * 0.5f;
-			node.minSize = fminf( node.minSize, 0.5f * (tln.bmax - tln.bmax) );
+			TLASNode& tln = tlas[tlasIdx[node.first + i]];
+			float3 C = (tln.aabbMin + tln.aabbMax) * 0.5f;
+			node.minSize = fminf( node.minSize, 0.5f * (tln.aabbMax - tln.aabbMin) );
 			node.bmin = fminf( node.bmin, C ), node.bmax = fmaxf( node.bmax, C );
 		}
 		// terminate if we are down to 1 tlas
@@ -249,8 +212,8 @@ public:
 			int leftCount = 0;
 			for( uint i = 0; i < node.count; i++ )
 			{
-				Bounds& tl = bounds[tlasIdx[node.first + i]];
-				float3 P = (tl.bmin + tl.bmax) * 0.5f;
+				TLASNode& tl = tlas[tlasIdx[node.first + i]];
+				float3 P = (tl.aabbMin + tl.aabbMax) * 0.5f;
 				if (P[axis] <= center) leftCount++;
 			}
 			float ratio = max( 0.15f, min( 0.85f, (float)leftCount / (float)node.count ) );
@@ -270,8 +233,8 @@ public:
 		int N = node.count, first = node.first, last = first + N;
 		if (N < 3) last = first + 1; else while (1)
 		{
-			Bounds& tl = bounds[tlasIdx[first]];
-			float3 P = (tl.bmin + tl.bmax) * 0.5f;
+			TLASNode& tl = tlas[tlasIdx[first]];
+			float3 P = (tl.aabbMin + tl.aabbMax) * 0.5f;
 			if (P[axis] > splitPos) swap( first, --last ); else first++;
 			if (first >= last) break;
 		}
@@ -285,11 +248,10 @@ public:
 	void add( uint idx )
 	{
 		// capture bounds of new node
-		bounds[idx].bmin = tlas[idx].aabbMin, bounds[idx].w0 = 0;
-		bounds[idx].bmax = tlas[idx].aabbMax, bounds[idx].w1 = 0;
+		idx -= offset;
 		// create an index for the new node
-		Bounds& newTLAS = bounds[idx];
-		float3 C = (newTLAS.bmin + newTLAS.bmax) * 0.5f;
+		TLASNode& newTLAS = tlas[idx];
+		float3 C = (newTLAS.aabbMin + newTLAS.aabbMax) * 0.5f;
 		tlasIdx[tlasCount++] = idx;
 		// claim a new KDNode for the tlas and make it a leaf
 		uint leafIdx, intIdx, nidx;
@@ -297,11 +259,11 @@ public:
 		leaf[idx] = leafIdx;
 		leafNode.first = tlasCount - 1, leafNode.count = 1;
 		leafNode.bmin = leafNode.bmax = C;
-		leafNode.minSize = 0.5f* (newTLAS.bmax - newTLAS.bmin);
+		leafNode.minSize = 0.5f* (newTLAS.aabbMax - newTLAS.aabbMin);
 		// we'll also need a new interior node
 		intIdx = freed[1];
 		// see where we should insert it
-		float3 P = (newTLAS.bmin + newTLAS.bmax) * 0.5f;
+		float3 P = (newTLAS.aabbMin + newTLAS.aabbMax) * 0.5f;
 		KDNode* n = &node[nidx = 0];
 		while (1) if (n->isLeaf())
 		{
@@ -348,6 +310,7 @@ public:
 	void removeLeaf( uint idx )
 	{
 		// determine which node to delete for tlas[idx]: must be a leaf
+		idx -= offset;
 		uint toDelete = leaf[idx]; // note: no need to clear the leaf[idx] entry
 		if (node[toDelete].count > 1) // special case: multiple TLASes in one node, rare
 		{
@@ -370,9 +333,14 @@ public:
 			node[parent.right].parax = (parentIdx << 3) + (node[parent.right].parax & 7);
 		freed[0] = sibling, freed[1] = toDelete;
 	}
-	int FindNearest( const uint A, uint& startB, float& startSA )
+	int FindNearest( uint A, uint& startB, float& startSA )
 	{
 		// keep all hot data together
+		if (A < offset)
+		{
+			int w = 0;
+		}
+		A -= offset;
 		__declspec(align(64)) struct TravState
 		{
 			__m128 Pa4, tlasAbmin4, tlasAbmax4;
@@ -382,11 +350,12 @@ public:
 		uint stack[60];
 		uint& n = state.n, & stackPtr = state.stackPtr, & bestB = state.bestB;
 		float& smallestSA = state.smallestSA;
-		n = 0, stackPtr = 0, smallestSA = startSA, bestB = startB;
+		n = 0, stackPtr = 0, smallestSA = startSA, bestB = startB - offset;
 		// gather data for node A
 		__m128& tlasAbmin4 = state.tlasAbmin4;
 		__m128& tlasAbmax4 = state.tlasAbmax4;
-		tlasAbmin4 = bounds[A].bmin4, tlasAbmax4 = bounds[A].bmax4;
+		tlasAbmin4 = _mm_setr_ps( tlas[A].aabbMin.x, tlas[A].aabbMin.y, tlas[A].aabbMin.z, 0 );
+		tlasAbmax4 = _mm_setr_ps( tlas[A].aabbMax.x, tlas[A].aabbMin.y, tlas[A].aabbMin.z, 0 );
 		float3 tlasAbmin = *(float3*)&state.tlasAbmin4;
 		float3 tlasAbmax = *(float3*)&state.tlasAbmax4;
 		__m128& Pa4 = state.Pa4;
@@ -394,6 +363,8 @@ public:
 		const __m128 half4 = _mm_set_ps1( 0.5f );
 		const __m128 extentA4 = _mm_sub_ps( tlasAbmax4, tlasAbmin4 );
 		const __m128 halfExtentA4 = _mm_mul_ps( half4, _mm_sub_ps( tlasAbmax4, tlasAbmin4 ) );
+		const __m128 tmp4 = _mm_setr_ps( -1, -1, -1, 1 );
+		const __m128 xyzMask4 = _mm_cmple_ps( tmp4, _mm_setzero_ps() );
 		// walk the tree
 		while (1)
 		{
@@ -409,11 +380,13 @@ public:
 						// calculate surface area of union of A and B
 					#if 0
 						// scalar version
-						const float3 size = fmaxf( tlasAbmax, bounds[B].bmax ) - fminf( tlasAbmin, bounds[B].bmin );
+						const float3 size = fmaxf( tlasAbmax, tlas[B].aabbMax ) - fminf( tlasAbmin, tlas[B].aabbMin );
 						const float SA = size.x * size.y + size.y * size.z + size.z * size.x;
 					#else
 						// SSE version
-						const __m128 size4 = _mm_sub_ps( _mm_max_ps( tlasAbmax4, bounds[B].bmax4 ), _mm_min_ps( tlasAbmin4, bounds[B].bmin4 ) );
+						const __m128 bbmin4 = _mm_and_ps( tlas[B].aabbMin4, xyzMask4 );
+						const __m128 bbmax4 = _mm_and_ps( tlas[B].aabbMax4, xyzMask4 );
+						const __m128 size4 = _mm_sub_ps( _mm_max_ps( tlasAbmax4, bbmax4 ), _mm_min_ps( tlasAbmin4, bbmin4 ) );
 						const float SA = size4.m128_f32[0] * size4.m128_f32[1] + size4.m128_f32[1] * size4.m128_f32[2] +
 							size4.m128_f32[2] * size4.m128_f32[0];
 					#endif
@@ -440,15 +413,14 @@ public:
 			n = stack[--stackPtr];
 		}
 		// all done; return best match
-		startB = bestB;
+		startB = bestB + offset;
 		startSA = smallestSA;
-		return bestB;
+		return bestB + offset;
 	}
 	// data
 	KDNode* node = 0;
 	TLASNode* tlas = 0;
-	Bounds* bounds = 0;
-	uint* leaf = 0, * tlasIdx = 0, nodePtr = 1, tlasCount = 0, blasCount = 0, freed[2] = { 0, 0 };
+	uint* leaf = 0, * tlasIdx = 0, nodePtr = 1, tlasCount = 0, blasCount = 0, offset = 0, freed[2] = { 0, 0 };
 };
 
 // top-level BVH class

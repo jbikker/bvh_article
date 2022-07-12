@@ -370,6 +370,7 @@ Job* JobManager::GetNextJob()
 
 void JobManager::RunJobs()
 {
+	if (m_JobCount == 0) return;
 	for (unsigned int i = 0; i < m_NumThreads; i++) m_JobThreadList[i].Go();
 	WaitForMultipleObjects( m_NumThreads, m_ThreadDone, TRUE, INFINITE );
 }
