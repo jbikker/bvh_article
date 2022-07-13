@@ -131,9 +131,6 @@ public:
 	TLAS() = default;
 	TLAS( BVHInstance* bvhList, int N );
 	void Build();
-	void BuildQuick();
-	void SortAndSplit( uint first, uint last, uint level );
-	void CreateParent( uint idx, uint left, uint right );
 	void Intersect( Ray& ray );
 private:
 	int FindBestMatch( int N, int A );
@@ -142,7 +139,18 @@ public:
 	BVHInstance* blas = 0;
 	uint nodesUsed, blasCount;
 	uint* nodeIdx = 0;
-	KDTree* kdtree = 0;
+	// fast agglomerative clustering functionality
+	struct SortItem { float pos; uint blasIdx; };
+	void BuildQuick();
+	void SortAndSplit( uint first, uint last, uint level );
+	void CreateParent( uint idx, uint left, uint right );
+	static void Swap( SortItem& a, SortItem& b ) { SortItem t = a; a = b; b = t; }
+	void QuickSort( SortItem a[], int first, int last );
+	// data for fast agglomerative clustering
+	KDTree* tree[16] = { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 };
+	uint treeSize[16] = { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 };
+	SortItem* item = 0;
+	uint treeIdx = 0;
 };
 
 } // namespace Tmpl8

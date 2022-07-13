@@ -28,7 +28,7 @@ public:
 		blasCount = N;				// blasCount remains constant
 		tlasCount = N;				// tlasCount will grow during aggl. clustering
 		offset = O;					// index of the first TLAS node in the array
-		leaf = new uint[80000];		// for delete op, we need to know which leaf contains a particular tlas
+		if (!leaf) leaf = new uint[100000];
 		node = (KDNode*)_aligned_malloc( sizeof( KDNode ) * N * 2, 64 ); // pre-allocate kdtree nodes, aligned
 		tlasIdx = new uint[N * 2 + 64]; // tlas array indirection so we can store ranges of nodes in leaves
 	}
@@ -48,7 +48,7 @@ public:
 			for (uint j = 0; j < node[i].count; j++)
 			{
 				uint idx = tlasIdx[node[i].first + j];
-				leaf[idx] = i;	// we can find tlas[idx] in leaf node[i]
+				leaf[idx + offset] = i;	// we can find tlas[idx] in leaf node[i]
 				float3 tlSize = 0.5f * (tlas[idx].aabbMax - tlas[idx].aabbMin);
 				node[i].minSize = fminf( node[i].minSize, tlSize );
 			}
@@ -135,7 +135,7 @@ public:
 		// claim a new KDNode for the tlas and make it a leaf
 		uint leafIdx, intIdx, nidx;
 		KDNode& leafNode = node[leafIdx = freed[0]];
-		leaf[idx] = leafIdx;
+		leaf[idx + offset] = leafIdx;
 		leafNode.first = tlasCount - 1, leafNode.count = 1;
 		leafNode.bmin = leafNode.bmax = C;
 		leafNode.minSize = 0.5f * (newTLAS.aabbMax - newTLAS.aabbMin);
@@ -156,7 +156,7 @@ public:
 				Pn = (node[intIdx].bmin + node[intIdx].bmax) * 0.5f;
 				// and finally, redirect leaf entries for old root
 				for (uint j = 0; j < node[intIdx].count; j++)
-					leaf[tlasIdx[node[intIdx].first + j]] = intIdx;
+					leaf[tlasIdx[node[intIdx].first + j] + offset] = intIdx;
 				// put the new leaf and n in the correct fields
 				nidx = intIdx, intIdx = 0, node[intIdx].parax = 0;
 			}
@@ -184,13 +184,13 @@ public:
 		else // traverse
 			n = &node[nidx = ((P[n->parax & 7] < n->splitPos) ? n->left : n->right)];
 		// refit
-		recurseRefit( leaf[idx] );
+		recurseRefit( leaf[idx + offset] );
 	}
 	void removeLeaf( uint idx )
 	{
 		// determine which node to delete for tlas[idx]: must be a leaf
+		uint toDelete = leaf[idx];
 		idx -= offset;
-		uint toDelete = leaf[idx]; // note: no need to clear the leaf[idx] entry
 		if (node[toDelete].count > 1) // special case: multiple TLASes in one node, rare
 		{
 			KDNode& n = node[toDelete];
@@ -206,7 +206,7 @@ public:
 		parent = node[sibling]; // by value, but rather elegant
 		if (parent.isLeaf()) // redirect leaf entries if the sibling is a leaf
 			for (uint j = 0; j < parent.count; j++)
-				leaf[tlasIdx[parent.first + j]] = parentIdx;
+				leaf[tlasIdx[parent.first + j] + offset] = parentIdx;
 		else // make sure child nodes point to the new index
 			node[parent.left].parax = (parentIdx << 3) + (node[parent.left].parax & 7),
 			node[parent.right].parax = (parentIdx << 3) + (node[parent.right].parax & 7);
@@ -295,5 +295,6 @@ public:
 	// data
 	KDNode* node = 0;
 	TLASNode* tlas = 0;
-	uint* leaf = 0, * tlasIdx = 0, nodePtr = 1, tlasCount = 0, blasCount = 0, offset = 0, freed[2] = { 0, 0 };
+	uint* tlasIdx = 0, nodePtr = 1, tlasCount = 0, blasCount = 0, offset = 0, freed[2] = { 0, 0 };
+	inline static uint* leaf = 0; // will be shared between trees
 };

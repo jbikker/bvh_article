@@ -392,36 +392,14 @@ void TLAS::Build()
 	tlasNode[0] = tlasNode[nodeIdx[A]];
 }
 
-struct SortItem { float pos; uint blasIdx; };
-static SortItem* item = 0;
-static KDTree* tree[16] = { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 };
-static uint treeSize[16] = { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 };
-static uint treeIdx = 0;
-static void Swap( SortItem& a, SortItem& b ) { SortItem t = a; a = b; b = t; }
-int Pivot( SortItem* a, int first, int last )
-{
-	int p = first;
-	SortItem e = a[first];
-	for (int i = first + 1; i <= last; i++) if (a[i].pos <= e.pos) Swap( a[i], a[++p] );
-	Swap( a[p], a[first] );
-	return p;
-}
-void QuickSort( SortItem a[], int first, int last )
-{
-	if (first >= last) return;
-	int pivotElement = Pivot( a, first, last );
-	QuickSort( a, first, pivotElement - 1 );
-	QuickSort( a, pivotElement + 1, last );
-}
-
 void TLAS::SortAndSplit( uint first, uint last, uint level )
 {
 	if (!item) item = new SortItem[blasCount];
 	uint axis = level % 3; // TODO: use dominant axis at each level?
-	if (level == 0) 
+	if (level == 0)
 	{
-		treeIdx = 0;
 		for (uint i = 0; i < blasCount; i++) item[i].blasIdx = i;
+		treeIdx = 0;
 	}
 	for (uint idx, i = first; i <= last; i++)
 		idx = item[i].blasIdx,
@@ -435,7 +413,7 @@ void TLAS::SortAndSplit( uint first, uint last, uint level )
 		return;
 	}
 	// create chunks
-	for( uint i = first; i <= half; i++ )
+	for (uint i = first; i <= half; i++)
 	{
 		BVHInstance& b = blas[item[i].blasIdx];
 		tlasNode[nodesUsed].aabbMin = b.bounds.bmin;
@@ -462,6 +440,28 @@ void TLAS::CreateParent( uint idx, uint left, uint right )
 	tlasNode[idx].left = left, tlasNode[idx].right = right;
 	tlasNode[idx].aabbMin = fminf( tlasNode[left].aabbMin, tlasNode[right].aabbMin );
 	tlasNode[idx].aabbMax = fmaxf( tlasNode[left].aabbMax, tlasNode[right].aabbMax );
+}
+
+void TLAS::QuickSort( SortItem a[], int first, int last )
+{
+	struct Task { uint first, last; };
+	_declspec (align(64)) Task stack[64];
+	uint& stackPtr = stack[0].first; // so it sits in the same cacheline
+	stackPtr = 1;
+	while (1)
+	{
+		while (1)
+		{
+			if (first >= last) break;
+			int p = first;
+			SortItem e = a[first];
+			for (int i = first + 1; i <= last; i++) if (a[i].pos <= e.pos) Swap( a[i], a[++p] );
+			Swap( a[p], a[first] );
+			stack[stackPtr].first = p + 1, stack[stackPtr++].last = last, last = p - 1;
+		}
+		if (stackPtr == 1) break;
+		first = stack[--stackPtr].first, last = stack[stackPtr].last;
+	}
 }
 
 void TLAS::BuildQuick()
@@ -515,13 +515,13 @@ void TLAS::BuildQuick()
 	nodesUsed = 32;
 	SortAndSplit( 0, blasCount - 1, 0 );
 	// 3. perform agglomerative clustering
-	#pragma omp parallel for
+#pragma omp parallel for
 	for (int i = 0; i < 16; i++)
 	{
 		tree[i]->rebuild();
 		float sa = 1e30f;
 		uint A = 32, B, best = 0, workLeft = treeSize[i], nodePtr = blasCount + 32;
-		for( int j = 0; j < i; j++ ) A += treeSize[j], nodePtr += treeSize[j] - 1;
+		for (int j = 0; j < i; j++) A += treeSize[j], nodePtr += treeSize[j] - 1;
 		B = tree[i]->FindNearest( A, best, sa );
 		while (1)
 		{
@@ -545,7 +545,7 @@ void TLAS::BuildQuick()
 		tlasNode[i + 15] = tlasNode[nodePtr];
 	}
 	// 4. join together the resulting trees
-	for( int i = 0; i < 8; i++ ) CreateParent( 7 + i, 15 + 2 * i, 16 + 2 * i );
+	for (int i = 0; i < 8; i++) CreateParent( 7 + i, 15 + 2 * i, 16 + 2 * i );
 	for (int i = 0; i < 4; i++) CreateParent( 3 + i, 7 + 2 * i, 8 + 2 * i );
 	for (int i = 0; i < 2; i++) CreateParent( 1 + i, 3 + 2 * i, 4 + 2 * i );
 	CreateParent( 0, 1, 2 );
