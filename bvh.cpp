@@ -394,8 +394,8 @@ void TLAS::Build()
 
 struct SortItem { float pos; uint blasIdx; };
 static SortItem* item = 0;
-static KDTree* tree[8] = { 0, 0, 0, 0, 0, 0, 0, 0 };
-static uint treeSize[8] = { 0, 0, 0, 0, 0, 0, 0, 0 };
+static KDTree* tree[16] = { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 };
+static uint treeSize[16] = { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 };
 static uint treeIdx = 0;
 static void Swap( SortItem& a, SortItem& b ) { SortItem t = a; a = b; b = t; }
 int Pivot( SortItem* a, int first, int last )
@@ -428,7 +428,7 @@ void TLAS::SortAndSplit( uint first, uint last, uint level )
 		item[i].pos = (blas[idx].bounds.bmin[axis] + blas[idx].bounds.bmin[axis]) * 0.5f;
 	QuickSort( item, first, last );
 	uint half = (first + last) >> 1;
-	if (level < 2)
+	if (level < 3)
 	{
 		SortAndSplit( first, half, level + 1 );
 		SortAndSplit( half + 1, last, level + 1 );
@@ -466,7 +466,7 @@ void TLAS::CreateParent( uint idx, uint left, uint right )
 
 void TLAS::BuildQuick()
 {
-	// single-threaded, reference
+	// single-threaded code, for reference
 #if 0
 	// assign a TLASleaf node to each BLAS
 	nodesUsed = 1;
@@ -516,14 +516,12 @@ void TLAS::BuildQuick()
 	SortAndSplit( 0, blasCount - 1, 0 );
 	// 3. perform agglomerative clustering
 	#pragma omp parallel for
-	for (int i = 0; i < 8; i++)
+	for (int i = 0; i < 16; i++)
 	{
 		tree[i]->rebuild();
 		float sa = 1e30f;
 		uint A = 32, B, best = 0, workLeft = treeSize[i], nodePtr = blasCount + 32;
-		for( int j = 0; j < i; j++ ) 
-			A += treeSize[j], 
-			nodePtr += treeSize[j] - 1;
+		for( int j = 0; j < i; j++ ) A += treeSize[j], nodePtr += treeSize[j] - 1;
 		B = tree[i]->FindNearest( A, best, sa );
 		while (1)
 		{
@@ -544,15 +542,12 @@ void TLAS::BuildQuick()
 			else A = B, B = C;
 		}
 		// copy last remaining node to the root node
-		tlasNode[i + 7] = tlasNode[nodePtr];
+		tlasNode[i + 15] = tlasNode[nodePtr];
 	}
 	// 4. join together the resulting trees
-	CreateParent( 3, 7, 8 );
-	CreateParent( 4, 9, 10 );
-	CreateParent( 5, 11, 12 );
-	CreateParent( 6, 13, 14 );
-	CreateParent( 1, 3, 4 );
-	CreateParent( 2, 5, 6 );
+	for( int i = 0; i < 8; i++ ) CreateParent( 7 + i, 15 + 2 * i, 16 + 2 * i );
+	for (int i = 0; i < 4; i++) CreateParent( 3 + i, 7 + 2 * i, 8 + 2 * i );
+	for (int i = 0; i < 2; i++) CreateParent( 1 + i, 3 + 2 * i, 4 + 2 * i );
 	CreateParent( 0, 1, 2 );
 	// 5. profit.
 	nodesUsed = 2 * blasCount + 64;
