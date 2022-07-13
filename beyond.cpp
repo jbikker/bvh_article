@@ -88,7 +88,7 @@ void BeyondApp::Init()
 	Surface* tex = mesh->texture;
 	texData = new Buffer( tex->width * tex->height * sizeof( uint ), tex->pixels );
 	instData = new Buffer( tlas.blasCount * sizeof( BVHInstance ), bvhInstance );
-	tlasData = new Buffer( tlas.blasCount * 2 * sizeof( TLASNode ), tlas.tlasNode );
+	tlasData = new Buffer( (tlas.blasCount * 2 + 64) * sizeof( TLASNode ), tlas.tlasNode );
 	bvhData = new Buffer( mesh->bvh->nodesUsed * sizeof( BVHNode ), mesh->bvh->bvhNode );
 	idxData = new Buffer( mesh->triCount * sizeof( uint ), mesh->bvh->triIdx );
 	triData->CopyToDevice();
@@ -111,7 +111,7 @@ void BeyondApp::Init()
 void BeyondApp::Tick( float deltaTime )
 {
 	// rebuild the TLAS
-	static int frameCount = 1500;
+	static int frameCount = 500;
 	if (frameCount-- > 0)
 	{
 		Timer t;

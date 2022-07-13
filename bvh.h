@@ -149,7 +149,7 @@ public:
 		blasCount = N;				// blasCount remains constant
 		tlasCount = N;				// tlasCount will grow during aggl. clustering
 		offset = O;					// index of the first TLAS node in the array
-		leaf = new uint[200000];		// for delete op, we need to know which leaf contains a particular tlas
+		leaf = new uint[80000];		// for delete op, we need to know which leaf contains a particular tlas
 		node = (KDNode*)_aligned_malloc( sizeof( KDNode ) * N * 2, 64 ); // pre-allocate kdtree nodes, aligned
 		tlasIdx = new uint[N * 2 + 64]; // tlas array indirection so we can store ranges of nodes in leaves
 	}
@@ -248,6 +248,10 @@ public:
 	void add( uint idx )
 	{
 		// capture bounds of new node
+		if (idx < offset)
+		{
+			int w = 0;
+		}
 		idx -= offset;
 		// create an index for the new node
 		TLASNode& newTLAS = tlas[idx];
@@ -431,6 +435,8 @@ public:
 	TLAS( BVHInstance* bvhList, int N );
 	void Build();
 	void BuildQuick();
+	void SortAndSplit( uint first, uint last, uint level );
+	void CreateParent( uint idx, uint left, uint right );
 	void Intersect( Ray& ray );
 private:
 	int FindBestMatch( int N, int A );
