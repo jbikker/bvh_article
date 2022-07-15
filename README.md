@@ -57,6 +57,6 @@ https://jacco.ompf2.com/2022/06/15/how-to-build-a-bvh-part-9b-massive<br>
 Project: massive.vcxproj, files: massive.cpp, massive.h, raytracer.cl.<br><br>
 
 NOTE: All projects share the same template files and build directories.<br>
-DISCLAIMER: None of this is supposed to be 'production quality'.
+DISCLAIMER: None of this is supposed to be 'production quality'.<br>
 LICENSE: This code is covered by the Unlicense. Feel free, no strings.<br><br>
 P.S.: Follow me on Twitter, <a href="https://twitter.com/j_bikker">@j_bikker</a>.
