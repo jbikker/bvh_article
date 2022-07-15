@@ -58,4 +58,5 @@ Project: massive.vcxproj, files: massive.cpp, massive.h, raytracer.cl.<br><br>
 
 NOTE: All projects share the same template files and build directories.<br>
 DISCLAIMER: None of this is supposed to be 'production quality'.
+LICENSE: This code is covered by the Unlicense. Feel free, no strings.<br><br>
 P.S.: Follow me on Twitter, <a href="https://twitter.com/j_bikker">@j_bikker</a>.
