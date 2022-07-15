@@ -85,6 +85,7 @@ public:
 	uint nodesUsed;
 	BVHNode* bvhNode = 0;
 	bool subdivToOnePrim = false; // for TLAS experiment
+	float3 centroidMin, centroidMax;
 };
 
 // minimalist mesh class

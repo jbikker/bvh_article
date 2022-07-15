@@ -196,25 +196,27 @@ void BVH::UpdateNodeBounds( uint nodeIdx )
 {
 	BVHNode& node = bvhNode[nodeIdx];
 #ifdef USE_SSE
-	__m128 min4 = _mm_set_ps1( 1e30f );
-	__m128 max4 = _mm_set_ps1( -1e30f );
+	__m128 min4 = _mm_set_ps1( 1e30f ), max4 = _mm_set_ps1( -1e30f );
+	__m128 cmin4 = _mm_set_ps1( 1e30f ), cmax4 = _mm_set_ps1( -1e30f );
 	for (uint first = node.leftFirst, i = 0; i < node.triCount; i++)
 	{
-		uint leafTriIdx = triIdx[first + i];
-		Tri& leafTri = mesh->tri[leafTriIdx];
-		min4 = _mm_min_ps( min4, leafTri.v0 );
-		max4 = _mm_max_ps( max4, leafTri.v0 );
-		min4 = _mm_min_ps( min4, leafTri.v1 );
-		max4 = _mm_max_ps( max4, leafTri.v1 );
-		min4 = _mm_min_ps( min4, leafTri.v2 );
-		max4 = _mm_max_ps( max4, leafTri.v2 );
+		Tri& leafTri = mesh->tri[triIdx[first + i]];
+		min4 = _mm_min_ps( min4, leafTri.v0 ), max4 = _mm_max_ps( max4, leafTri.v0 );
+		min4 = _mm_min_ps( min4, leafTri.v1 ), max4 = _mm_max_ps( max4, leafTri.v1 );
+		min4 = _mm_min_ps( min4, leafTri.v2 ), max4 = _mm_max_ps( max4, leafTri.v2 );
+		cmin4 = _mm_min_ps( cmin4, leafTri.centroid4 );
+		cmax4 = _mm_max_ps( cmax4, leafTri.centroid4 );
 	}
 	__m128 mask4 = _mm_cmpeq_ps( _mm_setzero_ps(), _mm_set_ps( 1, 0, 0, 0 ) );
 	node.aabbMin4 = _mm_blendv_ps( node.aabbMin4, min4, mask4 );
 	node.aabbMax4 = _mm_blendv_ps( node.aabbMax4, max4, mask4 );
+	centroidMin = *(float3*)&cmin4;
+	centroidMax = *(float3*)&cmax4;
 #else
 	node.aabbMin = float3( 1e30f );
 	node.aabbMax = float3( -1e30f );
+	centroidMin = float3( 1e30f );
+	centroidMax = float3( -1e30f );
 	for (uint first = node.leftFirst, i = 0; i < node.triCount; i++)
 	{
 		uint leafTriIdx = triIdx[first + i];
@@ -225,6 +227,8 @@ void BVH::UpdateNodeBounds( uint nodeIdx )
 		node.aabbMax = fmaxf( node.aabbMax, leafTri.vertex0 );
 		node.aabbMax = fmaxf( node.aabbMax, leafTri.vertex1 );
 		node.aabbMax = fmaxf( node.aabbMax, leafTri.vertex2 );
+		centroidMin = fminf( centroidMin, leafTri.centroid );
+		centroidMax = fmaxf( centroidMax, leafTri.centroid );
 	}
 #endif
 }
@@ -234,21 +238,15 @@ float BVH::FindBestSplitPlane( BVHNode& node, int& axis, float& splitPos )
 	float bestCost = 1e30f;
 	for (int a = 0; a < 3; a++)
 	{
-		float boundsMin = 1e30f, boundsMax = -1e30f;
-		for (uint i = 0; i < node.triCount; i++)
-		{
-			Tri& triangle = mesh->tri[triIdx[node.leftFirst + i]];
-			boundsMin = min( boundsMin, triangle.centroid[a] );
-			boundsMax = max( boundsMax, triangle.centroid[a] );
-		}
+		float boundsMin = centroidMin[a], boundsMax = centroidMax[a];
 		if (boundsMin == boundsMax) continue;
 		// populate the bins
 		float scale = BINS / (boundsMax - boundsMin);
 	#ifdef USE_SSE
 		__m128 min4[BINS], max4[BINS];
 		uint count[BINS];
-		for( uint i = 0; i < BINS; i++ ) 
-			min4[i] = _mm_set_ps1( 1e30f ), 
+		for (uint i = 0; i < BINS; i++)
+			min4[i] = _mm_set_ps1( 1e30f ),
 			max4[i] = _mm_set_ps1( -1e30f ),
 			count[i] = 0;
 		for (uint i = 0; i < node.triCount; i++)
@@ -276,8 +274,7 @@ float BVH::FindBestSplitPlane( BVHNode& node, int& axis, float& splitPos )
 		}
 	#endif
 		// gather data for the 7 planes between the 8 bins
-		float leftArea[BINS - 1], rightArea[BINS - 1];
-		int leftCount[BINS - 1], rightCount[BINS - 1];
+		float leftCountArea[BINS - 1], rightCountArea[BINS - 1];
 		int leftSum = 0, rightSum = 0;
 	#ifdef USE_SSE
 		__m128 leftMin4 = _mm_set_ps1( 1e30f ), rightMin4 = leftMin4;
@@ -285,17 +282,15 @@ float BVH::FindBestSplitPlane( BVHNode& node, int& axis, float& splitPos )
 		for (int i = 0; i < BINS - 1; i++)
 		{
 			leftSum += count[i];
-			leftCount[i] = leftSum;
-			leftMin4 = _mm_min_ps( leftMin4, min4[i] );
-			leftMax4 = _mm_max_ps( leftMax4, max4[i] );
-			__m128 le = _mm_sub_ps( leftMax4, leftMin4 );
-			leftArea[i] = le.m128_f32[0] * le.m128_f32[1] + le.m128_f32[1] * le.m128_f32[2] + le.m128_f32[2] * le.m128_f32[0];
 			rightSum += count[BINS - 1 - i];
-			rightCount[BINS - 2 - i] = rightSum;
+			leftMin4 = _mm_min_ps( leftMin4, min4[i] );
 			rightMin4 = _mm_min_ps( rightMin4, min4[BINS - 2 - i] );
+			leftMax4 = _mm_max_ps( leftMax4, max4[i] );
 			rightMax4 = _mm_max_ps( rightMax4, max4[BINS - 2 - i] );
-			__m128 re = _mm_sub_ps( rightMax4, rightMin4 );
-			rightArea[BINS - 2 - i] = re.m128_f32[0] * re.m128_f32[1] + re.m128_f32[1] * re.m128_f32[2] + re.m128_f32[2] * re.m128_f32[0];
+			const __m128 le = _mm_sub_ps( leftMax4, leftMin4 );
+			const __m128 re = _mm_sub_ps( rightMax4, rightMin4 );
+			leftCountArea[i] = leftSum * (le.m128_f32[0] * le.m128_f32[1] + le.m128_f32[1] * le.m128_f32[2] + le.m128_f32[2] * le.m128_f32[0]);
+			rightCountArea[BINS - 2 - i] = rightSum * (re.m128_f32[0] * re.m128_f32[1] + re.m128_f32[1] * re.m128_f32[2] + re.m128_f32[2] * re.m128_f32[0]);
 		}
 	#else
 		aabb leftBox, rightBox;
@@ -315,7 +310,7 @@ float BVH::FindBestSplitPlane( BVHNode& node, int& axis, float& splitPos )
 		scale = (boundsMax - boundsMin) / BINS;
 		for (int i = 0; i < BINS - 1; i++)
 		{
-			float planeCost = leftCount[i] * leftArea[i] + rightCount[i] * rightArea[i];
+			const float planeCost = leftCountArea[i] + rightCountArea[i];
 			if (planeCost < bestCost)
 				axis = a, splitPos = boundsMin + scale * (i + 1), bestCost = planeCost;
 		}
@@ -362,10 +357,10 @@ void BVH::Subdivide( uint nodeIdx )
 	bvhNode[rightChildIdx].triCount = node.triCount - leftCount;
 	node.leftFirst = leftChildIdx;
 	node.triCount = 0;
-	UpdateNodeBounds( leftChildIdx );
-	UpdateNodeBounds( rightChildIdx );
 	// recurse
+	UpdateNodeBounds( leftChildIdx );
 	Subdivide( leftChildIdx );
+	UpdateNodeBounds( rightChildIdx );
 	Subdivide( rightChildIdx );
 }
 
@@ -586,7 +581,7 @@ void TLAS::BuildQuick()
 	// building the TLAS top-down, fastest option for the Boids demo
 	static Mesh m;
 	if (!m.tri) m = Mesh( blasCount );
-	for( uint i = 0; i < blasCount; i++ )
+	for (uint i = 0; i < blasCount; i++)
 	{
 		m.tri[i].vertex0 = blas[i].bounds.bmin;
 		m.tri[i].vertex1 = blas[i].bounds.bmax;
@@ -600,7 +595,7 @@ void TLAS::BuildQuick()
 	m.bvh->Build();
 	// copy the BVH to a TLAS
 	memcpy( tlasNode, m.bvh->bvhNode, m.bvh->nodesUsed * sizeof( BVHNode ) );
-	for( uint i = 0; i < m.bvh->nodesUsed; i++ ) if (i != 1)
+	for (uint i = 0; i < m.bvh->nodesUsed; i++) if (i != 1)
 	{
 		const BVHNode& n = m.bvh->bvhNode[i];
 		if (n.isLeaf())
@@ -656,7 +651,7 @@ void TLAS::BuildQuick()
 	// 5. profit.
 	nodesUsed = 2 * blasCount + 64;
 #endif
-}
+	}
 
 void TLAS::Intersect( Ray& ray )
 {
