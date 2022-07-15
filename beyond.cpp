@@ -107,18 +107,32 @@ void BeyondApp::Init()
 		fclose( f );
 	}
 }
- 
+
+void CL_CALLBACK process( cl_event ev, cl_int status, void* data )
+{
+	cl_ulong start, end;
+	clGetEventProfilingInfo( ev, CL_PROFILING_COMMAND_START, sizeof( cl_ulong ), &start, NULL );
+	clGetEventProfilingInfo( ev, CL_PROFILING_COMMAND_END, sizeof( cl_ulong ), &end, NULL );
+	float sec = ((float)(end - start)) / 1000000000.0f;
+	static float avg = 0;
+	static int frames = 0;
+	if (frames++ < 10) avg = sec; else avg = 0.95f * avg + 0.05f * sec;
+	printf( "kernel time: %.2fms (%.2fMrays/s)\n", sec * 1000, ((float)(512 * 1024 * 16) / 1000000) / avg );
+}
+
 void BeyondApp::Tick( float deltaTime )
 {
+#if 1
 	// rebuild the TLAS
 	static int frameCount = 500;
 	if (frameCount-- > 0)
 	{
 		Timer t;
 		tlas.BuildQuick();
-		printf( "TLAS update took %.2fms\n", t.elapsed() * 1000 );
+		printf( "TLAS update: %.2fms\n", t.elapsed() * 1000 );
 		tlasData->CopyToDevice();
 	}
+#endif
 	// construct camera matrix
 	HandleKeys( deltaTime );
 	mat4 M = mat4::LookAt( camPos, camTarget );
@@ -126,13 +140,17 @@ void BeyondApp::Tick( float deltaTime )
 	p0 = TransformPosition( float3( -1 * ar, 1, 1.5f ), M );
 	p1 = TransformPosition( float3( 1 * ar, 1, 1.5f ), M );
 	p2 = TransformPosition( float3( -1 * ar, -1, 1.5f ), M );
-	// render the scene using the GPU
+	// render the scene using the GPU & gather profling information
 	tracer->SetArguments( 
 		target, skyData, 
 		triData, triExData, texData, tlasData, instData, bvhData, idxData, 
 		camPos, p0, p1, p2 
 	);
-	tracer->Run( SCRWIDTH * SCRHEIGHT );
+	static bool inited = false;
+	static cl_event ev;
+	if (!inited) ev = clCreateUserEvent( tracer->GetContext(), 0 ), inited = true;
+	// clSetEventCallback( ev, CL_COMPLETE, &process, NULL );
+	tracer->Run( SCRWIDTH * SCRHEIGHT, 0, 0, &ev );
 }
 
 void BeyondApp::Shutdown()

@@ -10,7 +10,14 @@ namespace Tmpl8
 {
 
 // minimalist triangle struct
-struct Tri { float3 vertex0, vertex1, vertex2; float3 centroid; };
+__declspec(align(64)) struct Tri
+{
+	// union each float3 with a 16-byte __m128 for faster BVH construction
+	union { float3 vertex0; __m128 v0; };
+	union { float3 vertex1; __m128 v1; };
+	union { float3 vertex2; __m128 v2; };
+	union { float3 centroid; __m128 centroid4; }; // total size: 64 bytes
+};
 
 // additional triangle data, for texturing and shading
 struct TriEx { float2 uv0, uv1, uv2; float3 N0, N1, N2; };
@@ -51,7 +58,7 @@ struct BVHNode
 {
 	union { struct { float3 aabbMin; uint leftFirst; }; __m128 aabbMin4; };
 	union { struct { float3 aabbMax; uint triCount; }; __m128 aabbMax4; };
-	bool isLeaf() { return triCount > 0; } // empty BVH leaves do not exist
+	bool isLeaf() const { return triCount > 0; } // empty BVH leaves do not exist
 	float CalculateNodeCost()
 	{
 		float3 e = aabbMax - aabbMin; // extent of the node
@@ -77,6 +84,7 @@ public:
 	uint* triIdx = 0;
 	uint nodesUsed;
 	BVHNode* bvhNode = 0;
+	bool subdivToOnePrim = false; // for TLAS experiment
 };
 
 // minimalist mesh class
@@ -84,13 +92,14 @@ class Mesh
 {
 public:
 	Mesh() = default;
+	Mesh( uint primCount );
 	Mesh( const char* objFile, const char* texFile );
-	Tri* tri;				// triangle data for intersection
-	TriEx* triEx;			// triangle data for shading
+	Tri* tri = 0;			// triangle data for intersection
+	TriEx* triEx = 0;		// triangle data for shading
 	int triCount = 0;
-	BVH* bvh;
-	Surface* texture;
-	float3* P, * N;
+	BVH* bvh = 0;
+	Surface* texture = 0;
+	float3* P = 0, * N = 0;
 };
 
 // instance of a BVH, with transform and world bounds

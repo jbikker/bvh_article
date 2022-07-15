@@ -61,16 +61,26 @@ float IntersectAABB_SSE( const Ray& ray, const __m128& bmin4, const __m128& bmax
 
 // Mesh class implementation
 
+Mesh::Mesh( const uint primCount )
+{
+	// basic constructor, for top-down TLAS construction
+	tri = (Tri*)_aligned_malloc( primCount * sizeof( Tri ), 64 );
+	memset( tri, 0, primCount * sizeof( Tri ) );
+	triEx = (TriEx*)_aligned_malloc( primCount * sizeof( TriEx ), 64 );
+	memset( triEx, 0, primCount * sizeof( TriEx ) );
+	triCount = primCount;
+}
+
 Mesh::Mesh( const char* objFile, const char* texFile )
 {
 	// bare-bones obj file loader; only supports very basic meshes
-	texture = new Surface( texFile );
-	tri = new Tri[19500];
-	triEx = new TriEx[19500];
+	tri = new Tri[25000];
+	triEx = new TriEx[25000];
 	float2* UV = new float2[11042]; // enough for dragon.obj
 	N = new float3[11042], P = new float3[11042];
 	int UVs = 0, Ns = 0, Ps = 0, a, b, c, d, e, f, g, h, i;
 	FILE* file = fopen( objFile, "r" );
+	if (!file) return; // file doesn't exist
 	while (!feof( file ))
 	{
 		char line[512] = { 0 };
@@ -92,6 +102,7 @@ Mesh::Mesh( const char* objFile, const char* texFile )
 	}
 	fclose( file );
 	bvh = new BVH( this );
+	texture = new Surface( texFile );
 }
 
 // BVH class implementation
@@ -178,14 +189,30 @@ void BVH::Build()
 	root.leftFirst = 0, root.triCount = mesh->triCount;
 	UpdateNodeBounds( 0 );
 	// subdivide recursively
-	Timer t;
 	Subdivide( 0 );
-	printf( "BVH constructed in %.2fms\n", t.elapsed() * 1000 );
 }
 
 void BVH::UpdateNodeBounds( uint nodeIdx )
 {
 	BVHNode& node = bvhNode[nodeIdx];
+#ifdef USE_SSE
+	__m128 min4 = _mm_set_ps1( 1e30f );
+	__m128 max4 = _mm_set_ps1( -1e30f );
+	for (uint first = node.leftFirst, i = 0; i < node.triCount; i++)
+	{
+		uint leafTriIdx = triIdx[first + i];
+		Tri& leafTri = mesh->tri[leafTriIdx];
+		min4 = _mm_min_ps( min4, leafTri.v0 );
+		max4 = _mm_max_ps( max4, leafTri.v0 );
+		min4 = _mm_min_ps( min4, leafTri.v1 );
+		max4 = _mm_max_ps( max4, leafTri.v1 );
+		min4 = _mm_min_ps( min4, leafTri.v2 );
+		max4 = _mm_max_ps( max4, leafTri.v2 );
+	}
+	__m128 mask4 = _mm_cmpeq_ps( _mm_setzero_ps(), _mm_set_ps( 1, 0, 0, 0 ) );
+	node.aabbMin4 = _mm_blendv_ps( node.aabbMin4, min4, mask4 );
+	node.aabbMax4 = _mm_blendv_ps( node.aabbMax4, max4, mask4 );
+#else
 	node.aabbMin = float3( 1e30f );
 	node.aabbMax = float3( -1e30f );
 	for (uint first = node.leftFirst, i = 0; i < node.triCount; i++)
@@ -199,6 +226,7 @@ void BVH::UpdateNodeBounds( uint nodeIdx )
 		node.aabbMax = fmaxf( node.aabbMax, leafTri.vertex1 );
 		node.aabbMax = fmaxf( node.aabbMax, leafTri.vertex2 );
 	}
+#endif
 }
 
 float BVH::FindBestSplitPlane( BVHNode& node, int& axis, float& splitPos )
@@ -215,8 +243,28 @@ float BVH::FindBestSplitPlane( BVHNode& node, int& axis, float& splitPos )
 		}
 		if (boundsMin == boundsMax) continue;
 		// populate the bins
-		struct Bin { aabb bounds; int triCount = 0; } bin[BINS];
 		float scale = BINS / (boundsMax - boundsMin);
+	#ifdef USE_SSE
+		__m128 min4[BINS], max4[BINS];
+		uint count[BINS];
+		for( uint i = 0; i < BINS; i++ ) 
+			min4[i] = _mm_set_ps1( 1e30f ), 
+			max4[i] = _mm_set_ps1( -1e30f ),
+			count[i] = 0;
+		for (uint i = 0; i < node.triCount; i++)
+		{
+			Tri& triangle = mesh->tri[triIdx[node.leftFirst + i]];
+			int binIdx = min( BINS - 1, (int)((triangle.centroid[a] - boundsMin) * scale) );
+			count[binIdx]++;
+			min4[binIdx] = _mm_min_ps( min4[binIdx], triangle.v0 );
+			max4[binIdx] = _mm_max_ps( max4[binIdx], triangle.v0 );
+			min4[binIdx] = _mm_min_ps( min4[binIdx], triangle.v1 );
+			max4[binIdx] = _mm_max_ps( max4[binIdx], triangle.v1 );
+			min4[binIdx] = _mm_min_ps( min4[binIdx], triangle.v2 );
+			max4[binIdx] = _mm_max_ps( max4[binIdx], triangle.v2 );
+		}
+	#else
+		struct Bin { aabb bounds; int triCount = 0; } bin[BINS];
 		for (uint i = 0; i < node.triCount; i++)
 		{
 			Tri& triangle = mesh->tri[triIdx[node.leftFirst + i]];
@@ -226,11 +274,31 @@ float BVH::FindBestSplitPlane( BVHNode& node, int& axis, float& splitPos )
 			bin[binIdx].bounds.grow( triangle.vertex1 );
 			bin[binIdx].bounds.grow( triangle.vertex2 );
 		}
+	#endif
 		// gather data for the 7 planes between the 8 bins
 		float leftArea[BINS - 1], rightArea[BINS - 1];
 		int leftCount[BINS - 1], rightCount[BINS - 1];
-		aabb leftBox, rightBox;
 		int leftSum = 0, rightSum = 0;
+	#ifdef USE_SSE
+		__m128 leftMin4 = _mm_set_ps1( 1e30f ), rightMin4 = leftMin4;
+		__m128 leftMax4 = _mm_set_ps1( -1e30f ), rightMax4 = leftMax4;
+		for (int i = 0; i < BINS - 1; i++)
+		{
+			leftSum += count[i];
+			leftCount[i] = leftSum;
+			leftMin4 = _mm_min_ps( leftMin4, min4[i] );
+			leftMax4 = _mm_max_ps( leftMax4, max4[i] );
+			__m128 le = _mm_sub_ps( leftMax4, leftMin4 );
+			leftArea[i] = le.m128_f32[0] * le.m128_f32[1] + le.m128_f32[1] * le.m128_f32[2] + le.m128_f32[2] * le.m128_f32[0];
+			rightSum += count[BINS - 1 - i];
+			rightCount[BINS - 2 - i] = rightSum;
+			rightMin4 = _mm_min_ps( rightMin4, min4[BINS - 2 - i] );
+			rightMax4 = _mm_max_ps( rightMax4, max4[BINS - 2 - i] );
+			__m128 re = _mm_sub_ps( rightMax4, rightMin4 );
+			rightArea[BINS - 2 - i] = re.m128_f32[0] * re.m128_f32[1] + re.m128_f32[1] * re.m128_f32[2] + re.m128_f32[2] * re.m128_f32[0];
+		}
+	#else
+		aabb leftBox, rightBox;
 		for (int i = 0; i < BINS - 1; i++)
 		{
 			leftSum += bin[i].triCount;
@@ -242,6 +310,7 @@ float BVH::FindBestSplitPlane( BVHNode& node, int& axis, float& splitPos )
 			rightBox.grow( bin[BINS - 1 - i].bounds );
 			rightArea[BINS - 2 - i] = rightBox.area();
 		}
+	#endif
 		// calculate SAH cost for the 7 planes
 		scale = (boundsMax - boundsMin) / BINS;
 		for (int i = 0; i < BINS - 1; i++)
@@ -263,7 +332,14 @@ void BVH::Subdivide( uint nodeIdx )
 	float splitPos;
 	float splitCost = FindBestSplitPlane( node, axis, splitPos );
 	float nosplitCost = node.CalculateNodeCost();
-	if (splitCost >= nosplitCost) return;
+	if (subdivToOnePrim)
+	{
+		if (node.triCount == 1) return;
+	}
+	else
+	{
+		if (splitCost >= nosplitCost) return;
+	}
 	// in-place partition
 	int i = node.leftFirst;
 	int j = i + node.triCount - 1;
@@ -478,6 +554,7 @@ void TLAS::BuildQuick()
 		tlasNode[nodesUsed++].leftRight = 0; // makes it a leaf
 	}
 	// build a kD-tree over the TLAS nodes
+	static KDTree* kdtree = 0;
 	if (!kdtree) kdtree = new KDTree( tlasNode + 1, nodesUsed - 1, 1 /* skip root */ );
 	Timer t;
 	kdtree->rebuild();
@@ -505,6 +582,33 @@ void TLAS::BuildQuick()
 	}
 	// copy last remaining node to the root node
 	tlasNode[0] = tlasNode[nodesUsed];
+#elif 1
+	// building the TLAS top-down, fastest option for the Boids demo
+	static Mesh m;
+	if (!m.tri) m = Mesh( blasCount );
+	for( uint i = 0; i < blasCount; i++ )
+	{
+		m.tri[i].vertex0 = blas[i].bounds.bmin;
+		m.tri[i].vertex1 = blas[i].bounds.bmax;
+		m.tri[i].vertex2 = (blas[i].bounds.bmin + blas[i].bounds.bmax) * 0.5f; // degenerate but with the correct aabb
+	}
+	if (!m.bvh)
+	{
+		m.bvh = new BVH( &m );
+		m.bvh->subdivToOnePrim = true;
+	}
+	m.bvh->Build();
+	// copy the BVH to a TLAS
+	memcpy( tlasNode, m.bvh->bvhNode, m.bvh->nodesUsed * sizeof( BVHNode ) );
+	for( uint i = 0; i < m.bvh->nodesUsed; i++ ) if (i != 1)
+	{
+		const BVHNode& n = m.bvh->bvhNode[i];
+		if (n.isLeaf())
+			tlasNode[i].BLAS = m.bvh->triIdx[n.leftFirst],
+			tlasNode[i].leftRight = 0; // mark as leaf
+		else
+			tlasNode[i].leftRight = n.leftFirst + ((n.leftFirst + 1) << 16);
+	}
 #else
 	// multi-threaded, using sorted pre-splitting. TODO: generalize to 2^N threads.
 	// 1. sort the list of TLAS nodes
