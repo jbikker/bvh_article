@@ -67,8 +67,13 @@ struct BVHNode
 };
 
 // bounding volume hierarchy, to be used as BLAS
-class BVH
+__declspec(align(64)) class BVH
 {
+	struct BuildJob
+	{
+		uint nodeIdx;
+		float3 centroidMin, centroidMax;
+	};
 public:
 	BVH() = default;
 	BVH( class Mesh* mesh );
@@ -76,16 +81,17 @@ public:
 	void Refit();
 	void Intersect( Ray& ray, uint instanceIdx );
 private:
-	void Subdivide( uint nodeIdx );
-	void UpdateNodeBounds( uint nodeIdx );
-	float FindBestSplitPlane( BVHNode& node, int& axis, float& splitPos );
+	void Subdivide( uint nodeIdx, uint depth, uint& nodePtr, float3& centroidMin, float3& centroidMax );
+	void UpdateNodeBounds( uint nodeIdx, float3& centroidMin, float3& centroidMax );
+	float FindBestSplitPlane( BVHNode& node, int& axis, float& splitPos, float3& centroidMin, float3& centroidMax );
 	class Mesh* mesh = 0;
 public:
 	uint* triIdx = 0;
 	uint nodesUsed;
 	BVHNode* bvhNode = 0;
 	bool subdivToOnePrim = false; // for TLAS experiment
-	float3 centroidMin, centroidMax;
+	BuildJob buildStack[64];
+	int buildStackPtr;
 };
 
 // minimalist mesh class
@@ -135,7 +141,7 @@ struct TLASNode
 #include "kdtree.h"
 
 // top-level BVH class
-class TLAS
+__declspec(align(64)) class TLAS
 {
 public:
 	TLAS() = default;

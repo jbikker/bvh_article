@@ -162,7 +162,8 @@ void BVH::Refit()
 		if (node.isLeaf())
 		{
 			// leaf node: adjust bounds to contained triangles
-			UpdateNodeBounds( i );
+			float3 dummy1, dummy2; // we don't need centroid bounds here
+			UpdateNodeBounds( i, dummy1, dummy2 );
 			continue;
 		}
 		// interior node: adjust bounds to child node bounds
@@ -178,6 +179,7 @@ void BVH::Build()
 {
 	// reset node pool
 	nodesUsed = 2;
+	memset( bvhNode, 0, mesh->triCount * 2 * sizeof( BVHNode ) );
 	// populate triangle index array
 	for (int i = 0; i < mesh->triCount; i++) triIdx[i] = i;
 	// calculate triangle centroids for partitioning
@@ -187,12 +189,168 @@ void BVH::Build()
 	// assign all triangles to root node
 	BVHNode& root = bvhNode[0];
 	root.leftFirst = 0, root.triCount = mesh->triCount;
-	UpdateNodeBounds( 0 );
+	float3 centroidMin, centroidMax;
+	UpdateNodeBounds( 0, centroidMin, centroidMax );
 	// subdivide recursively
-	Subdivide( 0 );
+	buildStackPtr = 0;
+	Subdivide( 0, 0, nodesUsed, centroidMin, centroidMax );
+	// do the parallel tasks
+	int nodePtr[64], N = buildStackPtr;
+	nodePtr[0] = nodesUsed;
+	for( int i = 1; i < N; i++ ) nodePtr[i] = nodePtr[i - 1] + bvhNode[buildStack[i - 1].nodeIdx].triCount * 2;
+	#pragma omp parallel for schedule(dynamic,1)
+	for( int i = 0; i < N; i++ )
+	{
+		float3 cmin = buildStack[i].centroidMin, cmax = buildStack[i].centroidMax;
+		uint np = nodePtr[i];
+		Subdivide( buildStack[i].nodeIdx, 99, np, cmin, cmax );
+	}
+	nodesUsed = nodePtr[N - 1] + bvhNode[buildStack[N - 1].nodeIdx].triCount * 2;
 }
 
-void BVH::UpdateNodeBounds( uint nodeIdx )
+void BVH::Subdivide( uint nodeIdx, uint depth, uint& nodePtr, float3& centroidMin, float3& centroidMax )
+{
+	BVHNode& node = bvhNode[nodeIdx];
+	// determine split axis using SAH
+	int axis;
+	float splitPos, splitCost = FindBestSplitPlane( node, axis, splitPos, centroidMin, centroidMax );
+	// terminate recursion
+	float nosplitCost = node.CalculateNodeCost();
+	if (subdivToOnePrim)
+	{
+		if (node.triCount == 1) return;
+	}
+	else
+	{
+		if (splitCost >= nosplitCost) return;
+	}
+	// in-place partition
+	int i = node.leftFirst;
+	int j = i + node.triCount - 1;
+	while (i <= j)
+	{
+		if (mesh->tri[triIdx[i]].centroid[axis] < splitPos)
+			i++;
+		else
+			swap( triIdx[i], triIdx[j--] );
+	}
+	// abort split if one of the sides is empty
+	int leftCount = i - node.leftFirst;
+	if (leftCount == 0 || leftCount == node.triCount) return;
+	// create child nodes
+	int leftChildIdx = nodePtr++;
+	int rightChildIdx = nodePtr++;
+	bvhNode[leftChildIdx].leftFirst = node.leftFirst;
+	bvhNode[leftChildIdx].triCount = leftCount;
+	bvhNode[rightChildIdx].leftFirst = i;
+	bvhNode[rightChildIdx].triCount = node.triCount - leftCount;
+	node.leftFirst = leftChildIdx;
+	node.triCount = 0;
+	// recurse
+	UpdateNodeBounds( leftChildIdx, centroidMin, centroidMax );
+	if (depth == 3)
+	{
+		// postpone the work, we'll do this in parallel later
+		buildStack[buildStackPtr].nodeIdx = leftChildIdx;
+		buildStack[buildStackPtr].centroidMin = centroidMin;
+		buildStack[buildStackPtr++].centroidMax = centroidMax;
+	}
+	else Subdivide( leftChildIdx, depth + 1, nodePtr, centroidMin, centroidMax );
+	UpdateNodeBounds( rightChildIdx, centroidMin, centroidMax );
+	if (depth == 3)
+	{
+		// postpone the work, we'll do this in parallel later
+		buildStack[buildStackPtr].nodeIdx = rightChildIdx;
+		buildStack[buildStackPtr].centroidMin = centroidMin;
+		buildStack[buildStackPtr++].centroidMax = centroidMax;
+	}
+	else Subdivide( rightChildIdx, depth + 1, nodePtr, centroidMin, centroidMax );
+}
+
+float BVH::FindBestSplitPlane( BVHNode& node, int& axis, float& splitPos, float3& centroidMin, float3& centroidMax )
+{
+	float bestCost = 1e30f;
+	for (int a = 0; a < 3; a++)
+	{
+		float boundsMin = centroidMin[a], boundsMax = centroidMax[a];
+		if (boundsMin == boundsMax) continue;
+		// populate the bins
+		float scale = BINS / (boundsMax - boundsMin);
+		float leftCountArea[BINS - 1], rightCountArea[BINS - 1];
+		int leftSum = 0, rightSum = 0;
+	#ifdef USE_SSE
+		__m128 min4[BINS], max4[BINS];
+		uint count[BINS];
+		for (uint i = 0; i < BINS; i++)
+			min4[i] = _mm_set_ps1( 1e30f ),
+			max4[i] = _mm_set_ps1( -1e30f ),
+			count[i] = 0;
+		for (uint i = 0; i < node.triCount; i++)
+		{
+			Tri& triangle = mesh->tri[triIdx[node.leftFirst + i]];
+			int binIdx = min( BINS - 1, (int)((triangle.centroid[a] - boundsMin) * scale) );
+			count[binIdx]++;
+			min4[binIdx] = _mm_min_ps( min4[binIdx], triangle.v0 );
+			max4[binIdx] = _mm_max_ps( max4[binIdx], triangle.v0 );
+			min4[binIdx] = _mm_min_ps( min4[binIdx], triangle.v1 );
+			max4[binIdx] = _mm_max_ps( max4[binIdx], triangle.v1 );
+			min4[binIdx] = _mm_min_ps( min4[binIdx], triangle.v2 );
+			max4[binIdx] = _mm_max_ps( max4[binIdx], triangle.v2 );
+		}
+		// gather data for the 7 planes between the 8 bins
+		__m128 leftMin4 = _mm_set_ps1( 1e30f ), rightMin4 = leftMin4;
+		__m128 leftMax4 = _mm_set_ps1( -1e30f ), rightMax4 = leftMax4;
+		for (int i = 0; i < BINS - 1; i++)
+		{
+			leftSum += count[i];
+			rightSum += count[BINS - 1 - i];
+			leftMin4 = _mm_min_ps( leftMin4, min4[i] );
+			rightMin4 = _mm_min_ps( rightMin4, min4[BINS - 2 - i] );
+			leftMax4 = _mm_max_ps( leftMax4, max4[i] );
+			rightMax4 = _mm_max_ps( rightMax4, max4[BINS - 2 - i] );
+			const __m128 le = _mm_sub_ps( leftMax4, leftMin4 );
+			const __m128 re = _mm_sub_ps( rightMax4, rightMin4 );
+			leftCountArea[i] = leftSum * (le.m128_f32[0] * le.m128_f32[1] + le.m128_f32[1] * le.m128_f32[2] + le.m128_f32[2] * le.m128_f32[0]);
+			rightCountArea[BINS - 2 - i] = rightSum * (re.m128_f32[0] * re.m128_f32[1] + re.m128_f32[1] * re.m128_f32[2] + re.m128_f32[2] * re.m128_f32[0]);
+		}
+	#else
+		struct Bin { aabb bounds; int triCount = 0; } bin[BINS];
+		for (uint i = 0; i < node.triCount; i++)
+		{
+			Tri& triangle = mesh->tri[triIdx[node.leftFirst + i]];
+			int binIdx = min( BINS - 1, (int)((triangle.centroid[a] - boundsMin) * scale) );
+			bin[binIdx].triCount++;
+			bin[binIdx].bounds.grow( triangle.vertex0 );
+			bin[binIdx].bounds.grow( triangle.vertex1 );
+			bin[binIdx].bounds.grow( triangle.vertex2 );
+		}
+		// gather data for the 7 planes between the 8 bins
+		aabb leftBox, rightBox;
+		for (int i = 0; i < BINS - 1; i++)
+		{
+			leftSum += bin[i].triCount;
+			leftCount[i] = leftSum;
+			leftBox.grow( bin[i].bounds );
+			leftArea[i] = leftBox.area();
+			rightSum += bin[BINS - 1 - i].triCount;
+			rightCount[BINS - 2 - i] = rightSum;
+			rightBox.grow( bin[BINS - 1 - i].bounds );
+			rightArea[BINS - 2 - i] = rightBox.area();
+		}
+	#endif
+		// calculate SAH cost for the 7 planes
+		scale = (boundsMax - boundsMin) / BINS;
+		for (int i = 0; i < BINS - 1; i++)
+		{
+			const float planeCost = leftCountArea[i] + rightCountArea[i];
+			if (planeCost < bestCost)
+				axis = a, splitPos = boundsMin + scale * (i + 1), bestCost = planeCost;
+		}
+	}
+	return bestCost;
+}
+
+void BVH::UpdateNodeBounds( uint nodeIdx, float3& centroidMin, float3& centroidMax )
 {
 	BVHNode& node = bvhNode[nodeIdx];
 #ifdef USE_SSE
@@ -231,137 +389,6 @@ void BVH::UpdateNodeBounds( uint nodeIdx )
 		centroidMax = fmaxf( centroidMax, leafTri.centroid );
 	}
 #endif
-}
-
-float BVH::FindBestSplitPlane( BVHNode& node, int& axis, float& splitPos )
-{
-	float bestCost = 1e30f;
-	for (int a = 0; a < 3; a++)
-	{
-		float boundsMin = centroidMin[a], boundsMax = centroidMax[a];
-		if (boundsMin == boundsMax) continue;
-		// populate the bins
-		float scale = BINS / (boundsMax - boundsMin);
-	#ifdef USE_SSE
-		__m128 min4[BINS], max4[BINS];
-		uint count[BINS];
-		for (uint i = 0; i < BINS; i++)
-			min4[i] = _mm_set_ps1( 1e30f ),
-			max4[i] = _mm_set_ps1( -1e30f ),
-			count[i] = 0;
-		for (uint i = 0; i < node.triCount; i++)
-		{
-			Tri& triangle = mesh->tri[triIdx[node.leftFirst + i]];
-			int binIdx = min( BINS - 1, (int)((triangle.centroid[a] - boundsMin) * scale) );
-			count[binIdx]++;
-			min4[binIdx] = _mm_min_ps( min4[binIdx], triangle.v0 );
-			max4[binIdx] = _mm_max_ps( max4[binIdx], triangle.v0 );
-			min4[binIdx] = _mm_min_ps( min4[binIdx], triangle.v1 );
-			max4[binIdx] = _mm_max_ps( max4[binIdx], triangle.v1 );
-			min4[binIdx] = _mm_min_ps( min4[binIdx], triangle.v2 );
-			max4[binIdx] = _mm_max_ps( max4[binIdx], triangle.v2 );
-		}
-	#else
-		struct Bin { aabb bounds; int triCount = 0; } bin[BINS];
-		for (uint i = 0; i < node.triCount; i++)
-		{
-			Tri& triangle = mesh->tri[triIdx[node.leftFirst + i]];
-			int binIdx = min( BINS - 1, (int)((triangle.centroid[a] - boundsMin) * scale) );
-			bin[binIdx].triCount++;
-			bin[binIdx].bounds.grow( triangle.vertex0 );
-			bin[binIdx].bounds.grow( triangle.vertex1 );
-			bin[binIdx].bounds.grow( triangle.vertex2 );
-		}
-	#endif
-		// gather data for the 7 planes between the 8 bins
-		float leftCountArea[BINS - 1], rightCountArea[BINS - 1];
-		int leftSum = 0, rightSum = 0;
-	#ifdef USE_SSE
-		__m128 leftMin4 = _mm_set_ps1( 1e30f ), rightMin4 = leftMin4;
-		__m128 leftMax4 = _mm_set_ps1( -1e30f ), rightMax4 = leftMax4;
-		for (int i = 0; i < BINS - 1; i++)
-		{
-			leftSum += count[i];
-			rightSum += count[BINS - 1 - i];
-			leftMin4 = _mm_min_ps( leftMin4, min4[i] );
-			rightMin4 = _mm_min_ps( rightMin4, min4[BINS - 2 - i] );
-			leftMax4 = _mm_max_ps( leftMax4, max4[i] );
-			rightMax4 = _mm_max_ps( rightMax4, max4[BINS - 2 - i] );
-			const __m128 le = _mm_sub_ps( leftMax4, leftMin4 );
-			const __m128 re = _mm_sub_ps( rightMax4, rightMin4 );
-			leftCountArea[i] = leftSum * (le.m128_f32[0] * le.m128_f32[1] + le.m128_f32[1] * le.m128_f32[2] + le.m128_f32[2] * le.m128_f32[0]);
-			rightCountArea[BINS - 2 - i] = rightSum * (re.m128_f32[0] * re.m128_f32[1] + re.m128_f32[1] * re.m128_f32[2] + re.m128_f32[2] * re.m128_f32[0]);
-		}
-	#else
-		aabb leftBox, rightBox;
-		for (int i = 0; i < BINS - 1; i++)
-		{
-			leftSum += bin[i].triCount;
-			leftCount[i] = leftSum;
-			leftBox.grow( bin[i].bounds );
-			leftArea[i] = leftBox.area();
-			rightSum += bin[BINS - 1 - i].triCount;
-			rightCount[BINS - 2 - i] = rightSum;
-			rightBox.grow( bin[BINS - 1 - i].bounds );
-			rightArea[BINS - 2 - i] = rightBox.area();
-		}
-	#endif
-		// calculate SAH cost for the 7 planes
-		scale = (boundsMax - boundsMin) / BINS;
-		for (int i = 0; i < BINS - 1; i++)
-		{
-			const float planeCost = leftCountArea[i] + rightCountArea[i];
-			if (planeCost < bestCost)
-				axis = a, splitPos = boundsMin + scale * (i + 1), bestCost = planeCost;
-		}
-	}
-	return bestCost;
-}
-
-void BVH::Subdivide( uint nodeIdx )
-{
-	// terminate recursion
-	BVHNode& node = bvhNode[nodeIdx];
-	// determine split axis using SAH
-	int axis;
-	float splitPos;
-	float splitCost = FindBestSplitPlane( node, axis, splitPos );
-	float nosplitCost = node.CalculateNodeCost();
-	if (subdivToOnePrim)
-	{
-		if (node.triCount == 1) return;
-	}
-	else
-	{
-		if (splitCost >= nosplitCost) return;
-	}
-	// in-place partition
-	int i = node.leftFirst;
-	int j = i + node.triCount - 1;
-	while (i <= j)
-	{
-		if (mesh->tri[triIdx[i]].centroid[axis] < splitPos)
-			i++;
-		else
-			swap( triIdx[i], triIdx[j--] );
-	}
-	// abort split if one of the sides is empty
-	int leftCount = i - node.leftFirst;
-	if (leftCount == 0 || leftCount == node.triCount) return;
-	// create child nodes
-	int leftChildIdx = nodesUsed++;
-	int rightChildIdx = nodesUsed++;
-	bvhNode[leftChildIdx].leftFirst = node.leftFirst;
-	bvhNode[leftChildIdx].triCount = leftCount;
-	bvhNode[rightChildIdx].leftFirst = i;
-	bvhNode[rightChildIdx].triCount = node.triCount - leftCount;
-	node.leftFirst = leftChildIdx;
-	node.triCount = 0;
-	// recurse
-	UpdateNodeBounds( leftChildIdx );
-	Subdivide( leftChildIdx );
-	UpdateNodeBounds( rightChildIdx );
-	Subdivide( rightChildIdx );
 }
 
 // BVHInstance implementation
