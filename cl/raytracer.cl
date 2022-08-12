@@ -11,7 +11,7 @@ float3 Trace( struct Ray* ray, float* skyPixels,
 	struct BVHNode* bvhNodeData, uint* idxData 
 )
 {
-#if 0
+#if 1
 	// default renderer
 	int rayDepth = 0;
 	float3 R;
@@ -93,7 +93,7 @@ __kernel void render(
 	// create a primary ray for the pixel
 	struct Ray ray;
 	float3 color = (float3)( 0, 0, 0 );
-	for( int i = 0; i < 16; i++ )
+	for( int i = 0; i < 2; i++ )
 	{
 		float3 pixelPos = p0 +
 			(p1 - p0) * (((float)x + RandomFloat( &seed )) / SCRWIDTH) +
@@ -104,7 +104,7 @@ __kernel void render(
 		// trace the primary ray
 		color += Trace( &ray, skyPixels, instData, tlasData, texData, triData, triExData, bvhNodeData, idxData );
 	}
-	write_imagef( target, (int2)(x, y), (float4)( color * (1.0f / 16.0f), 1 ) );
+	write_imagef( target, (int2)(x, y), (float4)( color * (1.0f / 2.0f), 1 ) );
 }
 
 // EOF

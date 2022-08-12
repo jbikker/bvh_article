@@ -110,7 +110,7 @@ Mesh::Mesh( const char* objFile, const char* texFile )
 BVH::BVH( Mesh* triMesh )
 {
 	mesh = triMesh;
-	bvhNode = (BVHNode*)_aligned_malloc( sizeof( BVHNode ) * mesh->triCount * 2, 64 );
+	bvhNode = (BVHNode*)_aligned_malloc( sizeof( BVHNode ) * mesh->triCount * 2 + 64, 64 );
 	triIdx = new uint[mesh->triCount];
 	Build();
 }
@@ -194,49 +194,49 @@ void BVH::Build()
 	// subdivide recursively
 	buildStackPtr = 0;
 	Subdivide( 0, 0, nodesUsed, centroidMin, centroidMax );
-	// do the parallel tasks
-	int nodePtr[64], N = buildStackPtr;
+	// do the parallel tasks, if any
+	uint nodePtr[64];
+	int N = buildStackPtr;
 	nodePtr[0] = nodesUsed;
-	for( int i = 1; i < N; i++ ) nodePtr[i] = nodePtr[i - 1] + bvhNode[buildStack[i - 1].nodeIdx].triCount * 2;
+	for (int i = 1; i < N; i++) nodePtr[i] = nodePtr[i - 1] + bvhNode[buildStack[i - 1].nodeIdx].triCount * 2;
 	#pragma omp parallel for schedule(dynamic,1)
-	for( int i = 0; i < N; i++ )
+	for (int i = 0; i < N; i++)
 	{
 		float3 cmin = buildStack[i].centroidMin, cmax = buildStack[i].centroidMax;
-		uint np = nodePtr[i];
-		Subdivide( buildStack[i].nodeIdx, 99, np, cmin, cmax );
+		Subdivide( buildStack[i].nodeIdx, 99, nodePtr[i], cmin, cmax );
 	}
-	nodesUsed = nodePtr[N - 1] + bvhNode[buildStack[N - 1].nodeIdx].triCount * 2;
+	nodesUsed = mesh->triCount * 2 + 64;
 }
 
 void BVH::Subdivide( uint nodeIdx, uint depth, uint& nodePtr, float3& centroidMin, float3& centroidMax )
 {
 	BVHNode& node = bvhNode[nodeIdx];
 	// determine split axis using SAH
-	int axis;
-	float splitPos, splitCost = FindBestSplitPlane( node, axis, splitPos, centroidMin, centroidMax );
+	int axis, splitPos;
+	float splitCost = FindBestSplitPlane( node, axis, splitPos, centroidMin, centroidMax );
 	// terminate recursion
-	float nosplitCost = node.CalculateNodeCost();
 	if (subdivToOnePrim)
 	{
 		if (node.triCount == 1) return;
 	}
 	else
 	{
+		float nosplitCost = node.CalculateNodeCost();
 		if (splitCost >= nosplitCost) return;
 	}
 	// in-place partition
 	int i = node.leftFirst;
 	int j = i + node.triCount - 1;
+	float scale = BINS / (centroidMax[axis] - centroidMin[axis]);
 	while (i <= j)
 	{
-		if (mesh->tri[triIdx[i]].centroid[axis] < splitPos)
-			i++;
-		else
-			swap( triIdx[i], triIdx[j--] );
+		// use the exact calculation we used for binning to prevent rare inaccuracies
+		int binIdx = min( BINS - 1, (int)((mesh->tri[triIdx[i]].centroid[axis] - centroidMin[axis]) * scale) );
+		if (binIdx < splitPos) i++; else swap( triIdx[i], triIdx[j--] );
 	}
 	// abort split if one of the sides is empty
 	int leftCount = i - node.leftFirst;
-	if (leftCount == 0 || leftCount == node.triCount) return;
+	if (leftCount == 0 || leftCount == node.triCount) return; // never happens for dragon mesh, nice
 	// create child nodes
 	int leftChildIdx = nodePtr++;
 	int rightChildIdx = nodePtr++;
@@ -267,7 +267,7 @@ void BVH::Subdivide( uint nodeIdx, uint depth, uint& nodePtr, float3& centroidMi
 	else Subdivide( rightChildIdx, depth + 1, nodePtr, centroidMin, centroidMax );
 }
 
-float BVH::FindBestSplitPlane( BVHNode& node, int& axis, float& splitPos, float3& centroidMin, float3& centroidMax )
+float BVH::FindBestSplitPlane( BVHNode& node, int& axis, int& splitPos, float3& centroidMin, float3& centroidMax )
 {
 	float bestCost = 1e30f;
 	for (int a = 0; a < 3; a++)
@@ -344,7 +344,7 @@ float BVH::FindBestSplitPlane( BVHNode& node, int& axis, float& splitPos, float3
 		{
 			const float planeCost = leftCountArea[i] + rightCountArea[i];
 			if (planeCost < bestCost)
-				axis = a, splitPos = boundsMin + scale * (i + 1), bestCost = planeCost;
+				axis = a, splitPos = i + 1, bestCost = planeCost;
 		}
 	}
 	return bestCost;
@@ -428,7 +428,7 @@ TLAS::TLAS( BVHInstance* bvhList, int N )
 	blas = bvhList;
 	blasCount = N;
 	// allocate TLAS nodes
-	tlasNode = (TLASNode*)_aligned_malloc( sizeof( TLASNode ) * 2 * N + 64, 64 );
+	tlasNode = (TLASNode*)_aligned_malloc( sizeof( TLASNode ) * 2 * (N + 64), 64 );
 	nodeIdx = new uint[N];
 	nodesUsed = 2;
 }
@@ -622,6 +622,10 @@ void TLAS::BuildQuick()
 	m.bvh->Build();
 	// copy the BVH to a TLAS
 	memcpy( tlasNode, m.bvh->bvhNode, m.bvh->nodesUsed * sizeof( BVHNode ) );
+	if (m.bvh->nodesUsed != blasCount * 2)
+	{
+		int w = 0;
+	}
 	for (uint i = 0; i < m.bvh->nodesUsed; i++) if (i != 1)
 	{
 		const BVHNode& n = m.bvh->bvhNode[i];
@@ -678,7 +682,7 @@ void TLAS::BuildQuick()
 	// 5. profit.
 	nodesUsed = 2 * blasCount + 64;
 #endif
-	}
+}
 
 void TLAS::Intersect( Ray& ray )
 {

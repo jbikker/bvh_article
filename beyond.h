@@ -37,6 +37,10 @@ public:
 	Buffer* instData;	// buffer for BVHInstance data
 	Buffer* bvhData;	// buffer for BVH node data
 	Buffer* idxData;	// buffer for triangle index data for BVH
+	// boids data
+	float3* boidPos = 0;
+	float3* boidDir = 0;
+	int boidCount = 0;
 };
 
 } // namespace Tmpl8

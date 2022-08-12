@@ -7,7 +7,7 @@
 // THIS SOURCE FILE:
 // Improvements made after the final article in the "How to Build a 
 // BVH" series. In this code: 
-// Faster agglomerative clustering, enabling a moving flock of dragons;
+// Faster TLAS construction, enabling a moving flock of dragons;
 // Faster BVH construction, enabling exploding dragons.
 // Feel free to copy this code to your own framework. Absolutely no
 // rights are reserved. No responsibility is accepted either.
@@ -15,7 +15,152 @@
 
 TheApp* CreateApp() { return new BeyondApp(); }
 
-// MassiveApp implementation
+struct Flock
+{
+	const static int GRIDDIM = 32;		// dimension of the 3D acceleration grid
+	const static int BINSIZE = 128;	// capacity of each grid cell
+	const static int GROUPS = 64;		// job count for threaded flock update
+	struct Boid // adapted from https://processing.org/examples/flocking.html
+	{
+	public:
+		Boid() = default;
+		Boid( float3 pos ) : position( pos )
+		{
+			velocity = float3( RandomFloat() - 0.5f, RandomFloat() - 0.5f, RandomFloat() - 0.5f );
+			maxspeed = 1, maxforce = 0.03f;
+		}
+		void Tick( int group )
+		{
+			Flock::FindNearbyBoids( group, position, 80 );
+			velocity += separate( group ) * 2.5f;
+			velocity += align( group ) * 1.0f;
+			velocity += cohesion( group ) * 0.3f;
+			velocity += aim( group ) * 0.05f;
+			if (sqrLength( velocity ) > maxspeed * maxspeed) velocity = normalize( velocity ) * maxspeed;
+			newpos = position + velocity;
+			for (int a = 0; a < 3; a++)
+			{
+				if (newpos[a] < -249.9f) newpos[a] = 249.9f;
+				if (newpos[a] > 249.9f) newpos[a] = -249.9f;
+			}
+		}
+		float3 separate( int group )
+		{
+			float3 steer( 0 );
+			int count = Flock::nearBoids[group], actual = 0;
+			for (int i = 0; i < count; i++)
+			{
+				Boid& other = Flock::boid[nearBoid[group][i]];
+				float d2 = sqrLength( position - other.position );
+				if (d2 == 0 || d2 > ( 35 * 35 )) continue;
+				steer += normalize( position - other.position ) * (1.0f / sqrtf( d2 )), actual++;
+			}
+			if (sqrLength( steer ) > 0)
+			{
+				steer = normalize( steer * (1.0f / actual) ) * maxspeed - velocity;
+				if (sqrLength( steer ) > maxforce * maxforce) steer = normalize( steer ) * maxforce;
+			}
+			return steer;
+		}
+		float3 align( int group )
+		{
+			float3 sum( 0 );
+			int count = Flock::nearBoids[group];
+			if (count == 0) return float3( 0 );
+			for (int i = 0; i < count; i++)
+			{
+				Boid& other = Flock::boid[nearBoid[group][i]];
+				sum += other.velocity;
+			}
+			sum = normalize( sum * (1.0f / count) ) * maxspeed;
+			float3 steer = sum - velocity;
+			if (sqrLength( steer ) > maxforce * maxforce) steer = normalize( steer ) * maxforce;
+			return steer;
+		}
+		float3 cohesion( int group )
+		{
+			float3 sum( 0 );
+			int count = Flock::nearBoids[group];
+			if (count == 0) return float3( 0 );
+			for (int i = 0; i < count; i++) sum += Flock::boid[nearBoid[group][i]].position;
+			float3 steer = normalize( sum * (1.0f / count) - position ) * maxspeed - velocity;
+			if (sqrLength( steer ) > maxforce * maxforce) steer = normalize( steer ) * maxforce;
+			return steer;
+		}
+		float3 aim( int group )
+		{
+			float3 steer = normalize( Flock::food - position ) * maxspeed - velocity;
+			if (sqrLength( steer ) > maxforce * maxforce) steer = normalize( steer ) * maxforce;
+			return steer;
+		}
+		// data members
+		float3 position, newpos, velocity;
+		float maxforce; // maximum steering force
+		float maxspeed; // maximum speed
+	};
+	Flock()
+	{
+		for (int i = 0; i < GROUPS; i++) nearBoid[i] = new int[BINSIZE * 5 * 5 * 5];
+		boid = new Boid[21000], boids = 0;
+		grid = new int[GRIDDIM * GRIDDIM * GRIDDIM * BINSIZE];
+	}
+	void Tick()
+	{
+		// rebuild the grid
+		memset( grid, 0, GRIDDIM * GRIDDIM * GRIDDIM * BINSIZE * 4 ); // bin holds counter + BINSIZE indices
+		for (int i = 0; i < boids; i++)
+		{
+			int ix = (int)((boid[i].position.x + 256) * 0.0625f); // yields 0..31
+			int iy = (int)((boid[i].position.y + 256) * 0.0625f); // yields 0..31
+			int iz = (int)((boid[i].position.z + 256) * 0.0625f); // yields 0..31
+			int addr = (ix + iy * GRIDDIM + iz * GRIDDIM * GRIDDIM) * BINSIZE;
+			int& count = grid[addr];
+			if (count < (BINSIZE - 1)) grid[++count] = i; // otherwise, skip the boid, np
+		}
+		// update the boids in groups using OpenMP
+	#pragma omp parallel for schedule(dynamic)
+		for (int g = 0; g < GROUPS; g++)
+		{
+			int first = (boids * g) / GROUPS;
+			int last = (boids * (g + 1)) / GROUPS - 1;
+			if (g == (GROUPS - 1)) last = boids - 1;
+			for (int i = first; i <= last; i++) boid[i].Tick( g );
+		}
+		// record the updated positions
+		for (int i = 0; i < boids; i++) boid[i].position = boid[i].newpos;
+	}
+	static void FindNearbyBoids( int group, float3 position, float radius )
+	{
+		int count = 0;
+		int ix = (int)((position.x + 256) * 0.0625f);
+		int iy = (int)((position.y + 256) * 0.0625f);
+		int iz = (int)((position.z + 256) * 0.0625f);
+		int gx1 = max( 0, ix - 2 ), gx2 = min( GRIDDIM - 1, ix + 2 );
+		int gy1 = max( 0, iy - 2 ), gy2 = min( GRIDDIM - 1, iy + 2 );
+		int gz1 = max( 0, iz - 2 ), gz2 = min( GRIDDIM - 1, iz + 2 );
+		float r2 = radius * radius;
+		for (int z = gz1; z <= gz2; z++) for (int y = gy1; y <= gy2; y++) for (int x = gx1; x <= gx2; x++)
+		{
+			int addr = (x + y * GRIDDIM + z * GRIDDIM * GRIDDIM) * BINSIZE;
+			for (int c = 0; c < grid[addr]; c++)
+			{
+				int j = grid[addr + c + 1];
+				float dist2 = sqrLength( position - boid[j].position );
+				if (dist2 < r2 && dist2 > 0) nearBoid[group][count++] = j;
+			}
+		}
+		nearBoids[group] = count;
+	}
+	// data members
+	static inline int* nearBoid[GROUPS];
+	static inline int nearBoids[GROUPS], boids = 0;
+	static inline Boid* boid = 0;
+	static inline int* grid = 0;
+	static inline float3 food = float3( 0 );
+};
+Flock flock;
+
+// BeyondApp implementation
 
 float3 camPos( 0, 0, 0 ), camTarget( 0, 0, 1 );
 
@@ -44,39 +189,14 @@ void BeyondApp::Init()
 	// load HDR sky
 	skyPixels = stbi_loadf( "assets/sky_19.hdr", &skyWidth, &skyHeight, &skyBpp, 0 );
 	for (int i = 0; i < skyWidth * skyHeight * 3; i++) skyPixels[i] = sqrtf( skyPixels[i] );
-	// dragons in the shape of a dragon
-#if 0
-	bvhInstance = new BVHInstance[16];
-	for (int i = 0; i < 16; i++)
+	// initial flock configuration: dragons in the shape of a dragon
+	boidCount = mesh->triCount;
+	bvhInstance = new BVHInstance[boidCount];
+	flock.boids = boidCount;
+	for (int i = 0; i < boidCount; i++)
+		Flock::boid[i] = Flock::Boid( float3( RandomFloat() * 480 - 240, RandomFloat() * 480 - 240, RandomFloat() * 480 - 240 ) ),
 		bvhInstance[i] = BVHInstance( mesh->bvh, i );
-	tlas = TLAS( bvhInstance, 16 );
-	// animate the scene
-	static float h[16] = { 5, 4, 3, 2, 1, 5, 4, 3 }, s[16] = { 0 };
-	for (int i = 0, x = 0; x < 4; x++) for (int y = 0; y < 4; y++, i++)
-	{
-		mat4 R, T = mat4::Translate( (x - 1.5f) * 2.5f, 0, (y - 1.5f) * 2.5f );
-		if ((x + y) & 1) R = mat4::RotateY( i * 0.2f );
-		else R = mat4::Translate( 0, h[i / 2], 0 );
-		bvhInstance[i].SetTransform( T * R * mat4::Scale( 0.015f ) );
-	}
-#else
-	uint instances = mesh->triCount;
-	bvhInstance = new BVHInstance[instances];
-	for( uint i = 0; i < instances; i++ )
-	{
-		uint f = i;
-		float3 P = (mesh->tri[f].vertex0 + mesh->tri[f].vertex1 + mesh->tri[f].vertex2) / 3;
-		bvhInstance[i] = BVHInstance( mesh->bvh, i );
-		bvhInstance[i].SetTransform( 
-			mat4::Translate( P * 0.2f ) * 
-			mat4::Scale( 0.0025f  ) *
-			mat4::Rotate( mesh->N[i & 1023], 0 ) *
-			mat4::RotateX( PI / 2 )
-		);
-	}
-	tlas = TLAS( bvhInstance, instances );
-#endif
-	tlas.BuildQuick();
+	tlas = TLAS( bvhInstance, boidCount );
 	// prepare OpenCL
 	tracer = new Kernel( "cl/raytracer.cl", "render" );
 	target = new Buffer( GetRenderTarget()->ID, 0, Buffer::TARGET );
@@ -87,25 +207,21 @@ void BeyondApp::Init()
 	triExData = new Buffer( mesh->triCount * sizeof( TriEx ), mesh->triEx );
 	Surface* tex = mesh->texture;
 	texData = new Buffer( tex->width * tex->height * sizeof( uint ), tex->pixels );
-	instData = new Buffer( tlas.blasCount * sizeof( BVHInstance ), bvhInstance );
-	tlasData = new Buffer( (tlas.blasCount * 2 + 64) * sizeof( TLASNode ), tlas.tlasNode );
+	instData = new Buffer( boidCount * sizeof( BVHInstance ), bvhInstance );
+	tlasData = new Buffer( (boidCount * 2 + 64) * sizeof( TLASNode ), tlas.tlasNode );
 	bvhData = new Buffer( mesh->bvh->nodesUsed * sizeof( BVHNode ), mesh->bvh->bvhNode );
 	idxData = new Buffer( mesh->triCount * sizeof( uint ), mesh->bvh->triIdx );
 	triData->CopyToDevice();
 	triExData->CopyToDevice();
 	texData->CopyToDevice();
-	instData->CopyToDevice();
 	bvhData->CopyToDevice();
 	idxData->CopyToDevice();
-	tlasData->CopyToDevice();
 	// fetch camera
 	FILE* f = fopen( "camera.bin", "rb" );
-	if (f)
-	{
-		fread( &camPos, 1, sizeof( camPos ), f );
-		fread( &camTarget, 1, sizeof( camTarget ), f );
-		fclose( f );
-	}
+	if (!f) return;
+	fread( &camPos, 1, sizeof( camPos ), f );
+	fread( &camTarget, 1, sizeof( camTarget ), f );
+	fclose( f );
 }
 
 void CL_CALLBACK process( cl_event ev, cl_int status, void* data )
@@ -123,15 +239,29 @@ void CL_CALLBACK process( cl_event ev, cl_int status, void* data )
 void BeyondApp::Tick( float deltaTime )
 {
 #if 1
-	// rebuild the TLAS
-	static int frameCount = 500;
-	if (frameCount-- > 0)
+	// move the boids
+	Timer t;
+	flock.Tick();
+	static int foodCounter = 300;
+	if (--foodCounter < 0)
 	{
-		Timer t;
-		tlas.BuildQuick();
-		printf( "TLAS update: %.2fms\n", t.elapsed() * 1000 );
-		tlasData->CopyToDevice();
+		foodCounter = (RandomUInt() & 255) + 64;
+		Flock::food = float3( RandomFloat() * 300 - 150, RandomFloat() * 300 - 150, RandomFloat() * 300 - 150 );
 	}
+	printf( "flock update: %.2fms, ", t.elapsed() * 1000 );
+	t.reset();
+	for (int i = 0; i < boidCount; i++)
+	{
+		float3 boidPos = Flock::boid[i].position * 0.1f;
+		float3 boidDir = normalize( Flock::boid[i].velocity );
+		mat4 orientation = mat4::LookAt( boidPos, boidPos + boidDir, float3( 0, 1, 0 ) );
+		bvhInstance[i].SetTransform( mat4::Translate( boidPos ) * orientation * mat4::Scale( 0.0025f ) );
+	}
+	// rebuild the TLAS
+	tlas.BuildQuick();
+	printf( "TLAS update: %.2fms\n", t.elapsed() * 1000 );
+	instData->CopyToDevice();
+	tlasData->CopyToDevice();
 #endif
 	// construct camera matrix
 	HandleKeys( deltaTime );
@@ -141,10 +271,10 @@ void BeyondApp::Tick( float deltaTime )
 	p1 = TransformPosition( float3( 1 * ar, 1, 1.5f ), M );
 	p2 = TransformPosition( float3( -1 * ar, -1, 1.5f ), M );
 	// render the scene using the GPU & gather profling information
-	tracer->SetArguments( 
-		target, skyData, 
-		triData, triExData, texData, tlasData, instData, bvhData, idxData, 
-		camPos, p0, p1, p2 
+	tracer->SetArguments(
+		target, skyData,
+		triData, triExData, texData, tlasData, instData, bvhData, idxData,
+		camPos, p0, p1, p2
 	);
 	static bool inited = false;
 	static cl_event ev;
