@@ -9,9 +9,9 @@ class BeyondApp : public TheApp
 public:
 	// game flow methods
 	void Init();
-	void HandleKeys();
+	void HandleKeys( float dt );
 	void Tick( float deltaTime );
-	void Shutdown() { /* implement if you want to do something on exit */ }
+	void Shutdown();
 	// input handling
 	void MouseUp( int button ) { /* implement if you want to detect mouse button presses */ }
 	void MouseDown( int button ) { /* implement if you want to detect mouse button presses */ }
@@ -37,6 +37,10 @@ public:
 	Buffer* instData;	// buffer for BVHInstance data
 	Buffer* bvhData;	// buffer for BVH node data
 	Buffer* idxData;	// buffer for triangle index data for BVH
+	// boids data
+	float3* boidPos = 0;
+	float3* boidDir = 0;
+	int boidCount = 0;
 };
 
 } // namespace Tmpl8

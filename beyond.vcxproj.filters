@@ -19,6 +19,7 @@
     </ClInclude>
     <ClInclude Include="bvh.h" />
     <ClInclude Include="beyond.h" />
+    <ClInclude Include="kdtree.h" />
   </ItemGroup>
   <ItemGroup>
     <None Include="template\LICENSE">

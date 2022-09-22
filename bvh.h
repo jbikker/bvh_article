@@ -10,7 +10,14 @@ namespace Tmpl8
 {
 
 // minimalist triangle struct
-struct Tri { float3 vertex0, vertex1, vertex2; float3 centroid; };
+__declspec(align(64)) struct Tri
+{
+	// union each float3 with a 16-byte __m128 for faster BVH construction
+	union { float3 vertex0; __m128 v0; };
+	union { float3 vertex1; __m128 v1; };
+	union { float3 vertex2; __m128 v2; };
+	union { float3 centroid; __m128 centroid4; }; // total size: 64 bytes
+};
 
 // additional triangle data, for texturing and shading
 struct TriEx { float2 uv0, uv1, uv2; float3 N0, N1, N2; };
@@ -51,7 +58,7 @@ struct BVHNode
 {
 	union { struct { float3 aabbMin; uint leftFirst; }; __m128 aabbMin4; };
 	union { struct { float3 aabbMax; uint triCount; }; __m128 aabbMax4; };
-	bool isLeaf() { return triCount > 0; } // empty BVH leafs do not exist
+	bool isLeaf() const { return triCount > 0; } // empty BVH leaves do not exist
 	float CalculateNodeCost()
 	{
 		float3 e = aabbMax - aabbMin; // extent of the node
@@ -60,8 +67,13 @@ struct BVHNode
 };
 
 // bounding volume hierarchy, to be used as BLAS
-class BVH
+__declspec(align(64)) class BVH
 {
+	struct BuildJob
+	{
+		uint nodeIdx;
+		float3 centroidMin, centroidMax;
+	};
 public:
 	BVH() = default;
 	BVH( class Mesh* mesh );
@@ -69,14 +81,17 @@ public:
 	void Refit();
 	void Intersect( Ray& ray, uint instanceIdx );
 private:
-	void Subdivide( uint nodeIdx );
-	void UpdateNodeBounds( uint nodeIdx );
-	float FindBestSplitPlane( BVHNode& node, int& axis, float& splitPos );
+	void Subdivide( uint nodeIdx, uint depth, uint& nodePtr, float3& centroidMin, float3& centroidMax );
+	void UpdateNodeBounds( uint nodeIdx, float3& centroidMin, float3& centroidMax );
+	float FindBestSplitPlane( BVHNode& node, int& axis, int& splitPos, float3& centroidMin, float3& centroidMax );
 	class Mesh* mesh = 0;
 public:
 	uint* triIdx = 0;
 	uint nodesUsed;
 	BVHNode* bvhNode = 0;
+	bool subdivToOnePrim = false; // for TLAS experiment
+	BuildJob buildStack[64];
+	int buildStackPtr;
 };
 
 // minimalist mesh class
@@ -84,13 +99,14 @@ class Mesh
 {
 public:
 	Mesh() = default;
+	Mesh( uint primCount );
 	Mesh( const char* objFile, const char* texFile );
-	Tri* tri;				// triangle data for intersection
-	TriEx* triEx;			// triangle data for shading
+	Tri* tri = 0;			// triangle data for intersection
+	TriEx* triEx = 0;		// triangle data for shading
 	int triCount = 0;
-	BVH* bvh;
-	Surface* texture;
-	float3* P, *N;
+	BVH* bvh = 0;
+	Surface* texture = 0;
+	float3* P = 0, * N = 0;
 };
 
 // instance of a BVH, with transform and world bounds
@@ -116,13 +132,16 @@ private:
 // top-level BVH node
 struct TLASNode
 {
-	union { struct { float dummy1[3]; uint leftRight; }; float3 aabbMin; };
-	union { struct { float dummy2[3]; uint BLAS; }; float3 aabbMax; };
+	union { struct { float dummy1[3]; uint leftRight; }; struct { float dummy3[3]; unsigned short left, right; }; float3 aabbMin; __m128 aabbMin4; };
+	union { struct { float dummy2[3]; uint BLAS; }; float3 aabbMax; __m128 aabbMax4; };
 	bool isLeaf() { return leftRight == 0; }
 };
 
+// include kD-tree logic for fast agglomerative clustering
+#include "kdtree.h"
+
 // top-level BVH class
-class TLAS
+__declspec(align(64)) class TLAS
 {
 public:
 	TLAS() = default;
@@ -130,11 +149,24 @@ public:
 	void Build();
 	void Intersect( Ray& ray );
 private:
-	int FindBestMatch( int* list, int N, int A );
+	int FindBestMatch( int N, int A );
 public:
 	TLASNode* tlasNode = 0;
 	BVHInstance* blas = 0;
 	uint nodesUsed, blasCount;
+	uint* nodeIdx = 0;
+	// fast agglomerative clustering functionality
+	struct SortItem { float pos; uint blasIdx; };
+	void BuildQuick();
+	void SortAndSplit( uint first, uint last, uint level );
+	void CreateParent( uint idx, uint left, uint right );
+	static void Swap( SortItem& a, SortItem& b ) { SortItem t = a; a = b; b = t; }
+	void QuickSort( SortItem a[], int first, int last );
+	// data for fast agglomerative clustering
+	KDTree* tree[16] = { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 };
+	uint treeSize[16] = { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 };
+	SortItem* item = 0;
+	uint treeIdx = 0;
 };
 
 } // namespace Tmpl8

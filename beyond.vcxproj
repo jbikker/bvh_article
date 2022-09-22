@@ -81,6 +81,7 @@
       <DebugInformationFormat>ProgramDatabase</DebugInformationFormat>
       <LanguageStandard Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">stdcpp17</LanguageStandard>
       <OpenMPSupport Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">true</OpenMPSupport>
+      <AdditionalOptions Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">/openmp:experimental /openmp:llvm %(AdditionalOptions)</AdditionalOptions>
     </ClCompile>
     <Link>
       <IgnoreSpecificDefaultLibraries>msvcrt.lib;%(IgnoreSpecificDefaultLibraries)</IgnoreSpecificDefaultLibraries>
@@ -135,6 +136,7 @@
     <ClInclude Include="bvh.h" />
     <ClInclude Include="cl\tools.cl" />
     <ClInclude Include="beyond.h" />
+    <ClInclude Include="kdtree.h" />
     <ClInclude Include="template\common.h" />
     <ClInclude Include="template\precomp.h" />
   </ItemGroup>

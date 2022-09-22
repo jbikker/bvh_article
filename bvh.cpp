@@ -1,6 +1,16 @@
 #include "precomp.h"
 #include "bvh.h"
 
+/*
+Performance: 1858ms without kD-tree
+with kDtree:
+- 15s without culling
+- 8.1s with culling
+- 3.4s without removeLeaf refitting
+- 858ms with recursive refitting
+- 836ms with cache alignment
+*/
+
 // functions
 
 void IntersectTri( Ray& ray, const Tri& tri, const uint instPrim )
@@ -20,7 +30,7 @@ void IntersectTri( Ray& ray, const Tri& tri, const uint instPrim )
 	const float v = f * dot( ray.D, q );
 	if (v < 0 || u + v > 1) return;
 	const float t = f * dot( edge2, q );
-	if (t > 0.0001f && t < ray.hit.t) 
+	if (t > 0.0001f && t < ray.hit.t)
 		ray.hit.t = t, ray.hit.u = u,
 		ray.hit.v = v, ray.hit.instPrim = instPrim;
 }
@@ -51,16 +61,26 @@ float IntersectAABB_SSE( const Ray& ray, const __m128& bmin4, const __m128& bmax
 
 // Mesh class implementation
 
+Mesh::Mesh( const uint primCount )
+{
+	// basic constructor, for top-down TLAS construction
+	tri = (Tri*)_aligned_malloc( primCount * sizeof( Tri ), 64 );
+	memset( tri, 0, primCount * sizeof( Tri ) );
+	triEx = (TriEx*)_aligned_malloc( primCount * sizeof( TriEx ), 64 );
+	memset( triEx, 0, primCount * sizeof( TriEx ) );
+	triCount = primCount;
+}
+
 Mesh::Mesh( const char* objFile, const char* texFile )
 {
 	// bare-bones obj file loader; only supports very basic meshes
-	texture = new Surface( texFile );
-	tri = new Tri[19500];
-	triEx = new TriEx[19500];
+	tri = new Tri[25000];
+	triEx = new TriEx[25000];
 	float2* UV = new float2[11042]; // enough for dragon.obj
 	N = new float3[11042], P = new float3[11042];
 	int UVs = 0, Ns = 0, Ps = 0, a, b, c, d, e, f, g, h, i;
 	FILE* file = fopen( objFile, "r" );
+	if (!file) return; // file doesn't exist
 	while (!feof( file ))
 	{
 		char line[512] = { 0 };
@@ -72,8 +92,8 @@ Mesh::Mesh( const char* objFile, const char* texFile )
 		else if (line[0] == 'v')
 			sscanf( line + 2, "%f %f %f", &P[Ps].x, &P[Ps].y, &P[Ps].z ), Ps++;
 		if (line[0] != 'f') continue; else
-		sscanf( line + 2, "%i/%i/%i %i/%i/%i %i/%i/%i",
-			&a, &b, &c, &d, &e, &f, &g, &h, &i );
+			sscanf( line + 2, "%i/%i/%i %i/%i/%i %i/%i/%i",
+				&a, &b, &c, &d, &e, &f, &g, &h, &i );
 		tri[triCount].vertex0 = P[a - 1], triEx[triCount].N0 = N[c - 1];
 		tri[triCount].vertex1 = P[d - 1], triEx[triCount].N1 = N[f - 1];
 		tri[triCount].vertex2 = P[g - 1], triEx[triCount].N2 = N[i - 1];
@@ -82,6 +102,7 @@ Mesh::Mesh( const char* objFile, const char* texFile )
 	}
 	fclose( file );
 	bvh = new BVH( this );
+	texture = new Surface( texFile );
 }
 
 // BVH class implementation
@@ -89,12 +110,12 @@ Mesh::Mesh( const char* objFile, const char* texFile )
 BVH::BVH( Mesh* triMesh )
 {
 	mesh = triMesh;
-	bvhNode = (BVHNode*)_aligned_malloc( sizeof( BVHNode ) * mesh->triCount * 2, 64 );
+	bvhNode = (BVHNode*)_aligned_malloc( sizeof( BVHNode ) * mesh->triCount * 2 + 64, 64 );
 	triIdx = new uint[mesh->triCount];
 	Build();
 }
 
-void BVH::Intersect( Ray& ray, uint instanceIdx  )
+void BVH::Intersect( Ray& ray, uint instanceIdx )
 {
 	BVHNode* node = &bvhNode[0], * stack[64];
 	uint stackPtr = 0;
@@ -141,7 +162,8 @@ void BVH::Refit()
 		if (node.isLeaf())
 		{
 			// leaf node: adjust bounds to contained triangles
-			UpdateNodeBounds( i );
+			float3 dummy1, dummy2; // we don't need centroid bounds here
+			UpdateNodeBounds( i, dummy1, dummy2 );
 			continue;
 		}
 		// interior node: adjust bounds to child node bounds
@@ -157,6 +179,7 @@ void BVH::Build()
 {
 	// reset node pool
 	nodesUsed = 2;
+	memset( bvhNode, 0, mesh->triCount * 2 * sizeof( BVHNode ) );
 	// populate triangle index array
 	for (int i = 0; i < mesh->triCount; i++) triIdx[i] = i;
 	// calculate triangle centroids for partitioning
@@ -166,47 +189,132 @@ void BVH::Build()
 	// assign all triangles to root node
 	BVHNode& root = bvhNode[0];
 	root.leftFirst = 0, root.triCount = mesh->triCount;
-	UpdateNodeBounds( 0 );
+	float3 centroidMin, centroidMax;
+	UpdateNodeBounds( 0, centroidMin, centroidMax );
 	// subdivide recursively
-	Timer t;
-	Subdivide( 0 );
-	printf( "BVH constructed in %.2fms\n", t.elapsed() * 1000 );
+	buildStackPtr = 0;
+	Subdivide( 0, 0, nodesUsed, centroidMin, centroidMax );
+	// do the parallel tasks, if any
+	uint nodePtr[64];
+	int N = buildStackPtr;
+	nodePtr[0] = nodesUsed;
+	for (int i = 1; i < N; i++) nodePtr[i] = nodePtr[i - 1] + bvhNode[buildStack[i - 1].nodeIdx].triCount * 2;
+	#pragma omp parallel for schedule(dynamic,1)
+	for (int i = 0; i < N; i++)
+	{
+		float3 cmin = buildStack[i].centroidMin, cmax = buildStack[i].centroidMax;
+		Subdivide( buildStack[i].nodeIdx, 99, nodePtr[i], cmin, cmax );
+	}
+	nodesUsed = mesh->triCount * 2 + 64;
 }
 
-void BVH::UpdateNodeBounds( uint nodeIdx )
+void BVH::Subdivide( uint nodeIdx, uint depth, uint& nodePtr, float3& centroidMin, float3& centroidMax )
 {
 	BVHNode& node = bvhNode[nodeIdx];
-	node.aabbMin = float3( 1e30f );
-	node.aabbMax = float3( -1e30f );
-	for (uint first = node.leftFirst, i = 0; i < node.triCount; i++)
+	// determine split axis using SAH
+	int axis, splitPos;
+	float splitCost = FindBestSplitPlane( node, axis, splitPos, centroidMin, centroidMax );
+	// terminate recursion
+	if (subdivToOnePrim)
 	{
-		uint leafTriIdx = triIdx[first + i];
-		Tri& leafTri = mesh->tri[leafTriIdx];
-		node.aabbMin = fminf( node.aabbMin, leafTri.vertex0 );
-		node.aabbMin = fminf( node.aabbMin, leafTri.vertex1 );
-		node.aabbMin = fminf( node.aabbMin, leafTri.vertex2 );
-		node.aabbMax = fmaxf( node.aabbMax, leafTri.vertex0 );
-		node.aabbMax = fmaxf( node.aabbMax, leafTri.vertex1 );
-		node.aabbMax = fmaxf( node.aabbMax, leafTri.vertex2 );
+		if (node.triCount == 1) return;
 	}
+	else
+	{
+		float nosplitCost = node.CalculateNodeCost();
+		if (splitCost >= nosplitCost) return;
+	}
+	// in-place partition
+	int i = node.leftFirst;
+	int j = i + node.triCount - 1;
+	float scale = BINS / (centroidMax[axis] - centroidMin[axis]);
+	while (i <= j)
+	{
+		// use the exact calculation we used for binning to prevent rare inaccuracies
+		int binIdx = min( BINS - 1, (int)((mesh->tri[triIdx[i]].centroid[axis] - centroidMin[axis]) * scale) );
+		if (binIdx < splitPos) i++; else swap( triIdx[i], triIdx[j--] );
+	}
+	// abort split if one of the sides is empty
+	int leftCount = i - node.leftFirst;
+	if (leftCount == 0 || leftCount == node.triCount) return; // never happens for dragon mesh, nice
+	// create child nodes
+	int leftChildIdx = nodePtr++;
+	int rightChildIdx = nodePtr++;
+	bvhNode[leftChildIdx].leftFirst = node.leftFirst;
+	bvhNode[leftChildIdx].triCount = leftCount;
+	bvhNode[rightChildIdx].leftFirst = i;
+	bvhNode[rightChildIdx].triCount = node.triCount - leftCount;
+	node.leftFirst = leftChildIdx;
+	node.triCount = 0;
+	// recurse
+	UpdateNodeBounds( leftChildIdx, centroidMin, centroidMax );
+	if (depth == 3)
+	{
+		// postpone the work, we'll do this in parallel later
+		buildStack[buildStackPtr].nodeIdx = leftChildIdx;
+		buildStack[buildStackPtr].centroidMin = centroidMin;
+		buildStack[buildStackPtr++].centroidMax = centroidMax;
+	}
+	else Subdivide( leftChildIdx, depth + 1, nodePtr, centroidMin, centroidMax );
+	UpdateNodeBounds( rightChildIdx, centroidMin, centroidMax );
+	if (depth == 3)
+	{
+		// postpone the work, we'll do this in parallel later
+		buildStack[buildStackPtr].nodeIdx = rightChildIdx;
+		buildStack[buildStackPtr].centroidMin = centroidMin;
+		buildStack[buildStackPtr++].centroidMax = centroidMax;
+	}
+	else Subdivide( rightChildIdx, depth + 1, nodePtr, centroidMin, centroidMax );
 }
 
-float BVH::FindBestSplitPlane( BVHNode& node, int& axis, float& splitPos )
+float BVH::FindBestSplitPlane( BVHNode& node, int& axis, int& splitPos, float3& centroidMin, float3& centroidMax )
 {
 	float bestCost = 1e30f;
 	for (int a = 0; a < 3; a++)
 	{
-		float boundsMin = 1e30f, boundsMax = -1e30f;
+		float boundsMin = centroidMin[a], boundsMax = centroidMax[a];
+		if (boundsMin == boundsMax) continue;
+		// populate the bins
+		float scale = BINS / (boundsMax - boundsMin);
+		float leftCountArea[BINS - 1], rightCountArea[BINS - 1];
+		int leftSum = 0, rightSum = 0;
+	#ifdef USE_SSE
+		__m128 min4[BINS], max4[BINS];
+		uint count[BINS];
+		for (uint i = 0; i < BINS; i++)
+			min4[i] = _mm_set_ps1( 1e30f ),
+			max4[i] = _mm_set_ps1( -1e30f ),
+			count[i] = 0;
 		for (uint i = 0; i < node.triCount; i++)
 		{
 			Tri& triangle = mesh->tri[triIdx[node.leftFirst + i]];
-			boundsMin = min( boundsMin, triangle.centroid[a] );
-			boundsMax = max( boundsMax, triangle.centroid[a] );
+			int binIdx = min( BINS - 1, (int)((triangle.centroid[a] - boundsMin) * scale) );
+			count[binIdx]++;
+			min4[binIdx] = _mm_min_ps( min4[binIdx], triangle.v0 );
+			max4[binIdx] = _mm_max_ps( max4[binIdx], triangle.v0 );
+			min4[binIdx] = _mm_min_ps( min4[binIdx], triangle.v1 );
+			max4[binIdx] = _mm_max_ps( max4[binIdx], triangle.v1 );
+			min4[binIdx] = _mm_min_ps( min4[binIdx], triangle.v2 );
+			max4[binIdx] = _mm_max_ps( max4[binIdx], triangle.v2 );
 		}
-		if (boundsMin == boundsMax) continue;
-		// populate the bins
+		// gather data for the 7 planes between the 8 bins
+		__m128 leftMin4 = _mm_set_ps1( 1e30f ), rightMin4 = leftMin4;
+		__m128 leftMax4 = _mm_set_ps1( -1e30f ), rightMax4 = leftMax4;
+		for (int i = 0; i < BINS - 1; i++)
+		{
+			leftSum += count[i];
+			rightSum += count[BINS - 1 - i];
+			leftMin4 = _mm_min_ps( leftMin4, min4[i] );
+			rightMin4 = _mm_min_ps( rightMin4, min4[BINS - 2 - i] );
+			leftMax4 = _mm_max_ps( leftMax4, max4[i] );
+			rightMax4 = _mm_max_ps( rightMax4, max4[BINS - 2 - i] );
+			const __m128 le = _mm_sub_ps( leftMax4, leftMin4 );
+			const __m128 re = _mm_sub_ps( rightMax4, rightMin4 );
+			leftCountArea[i] = leftSum * (le.m128_f32[0] * le.m128_f32[1] + le.m128_f32[1] * le.m128_f32[2] + le.m128_f32[2] * le.m128_f32[0]);
+			rightCountArea[BINS - 2 - i] = rightSum * (re.m128_f32[0] * re.m128_f32[1] + re.m128_f32[1] * re.m128_f32[2] + re.m128_f32[2] * re.m128_f32[0]);
+		}
+	#else
 		struct Bin { aabb bounds; int triCount = 0; } bin[BINS];
-		float scale = BINS / (boundsMax - boundsMin);
 		for (uint i = 0; i < node.triCount; i++)
 		{
 			Tri& triangle = mesh->tri[triIdx[node.leftFirst + i]];
@@ -217,10 +325,7 @@ float BVH::FindBestSplitPlane( BVHNode& node, int& axis, float& splitPos )
 			bin[binIdx].bounds.grow( triangle.vertex2 );
 		}
 		// gather data for the 7 planes between the 8 bins
-		float leftArea[BINS - 1], rightArea[BINS - 1];
-		int leftCount[BINS - 1], rightCount[BINS - 1];
 		aabb leftBox, rightBox;
-		int leftSum = 0, rightSum = 0;
 		for (int i = 0; i < BINS - 1; i++)
 		{
 			leftSum += bin[i].triCount;
@@ -232,55 +337,58 @@ float BVH::FindBestSplitPlane( BVHNode& node, int& axis, float& splitPos )
 			rightBox.grow( bin[BINS - 1 - i].bounds );
 			rightArea[BINS - 2 - i] = rightBox.area();
 		}
+	#endif
 		// calculate SAH cost for the 7 planes
 		scale = (boundsMax - boundsMin) / BINS;
 		for (int i = 0; i < BINS - 1; i++)
 		{
-			float planeCost = leftCount[i] * leftArea[i] + rightCount[i] * rightArea[i];
+			const float planeCost = leftCountArea[i] + rightCountArea[i];
 			if (planeCost < bestCost)
-				axis = a, splitPos = boundsMin + scale * (i + 1), bestCost = planeCost;
+				axis = a, splitPos = i + 1, bestCost = planeCost;
 		}
 	}
 	return bestCost;
 }
 
-void BVH::Subdivide( uint nodeIdx )
+void BVH::UpdateNodeBounds( uint nodeIdx, float3& centroidMin, float3& centroidMax )
 {
-	// terminate recursion
 	BVHNode& node = bvhNode[nodeIdx];
-	// determine split axis using SAH
-	int axis;
-	float splitPos;
-	float splitCost = FindBestSplitPlane( node, axis, splitPos );
-	float nosplitCost = node.CalculateNodeCost();
-	if (splitCost >= nosplitCost) return;
-	// in-place partition
-	int i = node.leftFirst;
-	int j = i + node.triCount - 1;
-	while (i <= j)
+#ifdef USE_SSE
+	__m128 min4 = _mm_set_ps1( 1e30f ), max4 = _mm_set_ps1( -1e30f );
+	__m128 cmin4 = _mm_set_ps1( 1e30f ), cmax4 = _mm_set_ps1( -1e30f );
+	for (uint first = node.leftFirst, i = 0; i < node.triCount; i++)
 	{
-		if (mesh->tri[triIdx[i]].centroid[axis] < splitPos)
-			i++;
-		else
-			swap( triIdx[i], triIdx[j--] );
+		Tri& leafTri = mesh->tri[triIdx[first + i]];
+		min4 = _mm_min_ps( min4, leafTri.v0 ), max4 = _mm_max_ps( max4, leafTri.v0 );
+		min4 = _mm_min_ps( min4, leafTri.v1 ), max4 = _mm_max_ps( max4, leafTri.v1 );
+		min4 = _mm_min_ps( min4, leafTri.v2 ), max4 = _mm_max_ps( max4, leafTri.v2 );
+		cmin4 = _mm_min_ps( cmin4, leafTri.centroid4 );
+		cmax4 = _mm_max_ps( cmax4, leafTri.centroid4 );
 	}
-	// abort split if one of the sides is empty
-	int leftCount = i - node.leftFirst;
-	if (leftCount == 0 || leftCount == node.triCount) return;
-	// create child nodes
-	int leftChildIdx = nodesUsed++;
-	int rightChildIdx = nodesUsed++;
-	bvhNode[leftChildIdx].leftFirst = node.leftFirst;
-	bvhNode[leftChildIdx].triCount = leftCount;
-	bvhNode[rightChildIdx].leftFirst = i;
-	bvhNode[rightChildIdx].triCount = node.triCount - leftCount;
-	node.leftFirst = leftChildIdx;
-	node.triCount = 0;
-	UpdateNodeBounds( leftChildIdx );
-	UpdateNodeBounds( rightChildIdx );
-	// recurse
-	Subdivide( leftChildIdx );
-	Subdivide( rightChildIdx );
+	__m128 mask4 = _mm_cmpeq_ps( _mm_setzero_ps(), _mm_set_ps( 1, 0, 0, 0 ) );
+	node.aabbMin4 = _mm_blendv_ps( node.aabbMin4, min4, mask4 );
+	node.aabbMax4 = _mm_blendv_ps( node.aabbMax4, max4, mask4 );
+	centroidMin = *(float3*)&cmin4;
+	centroidMax = *(float3*)&cmax4;
+#else
+	node.aabbMin = float3( 1e30f );
+	node.aabbMax = float3( -1e30f );
+	centroidMin = float3( 1e30f );
+	centroidMax = float3( -1e30f );
+	for (uint first = node.leftFirst, i = 0; i < node.triCount; i++)
+	{
+		uint leafTriIdx = triIdx[first + i];
+		Tri& leafTri = mesh->tri[leafTriIdx];
+		node.aabbMin = fminf( node.aabbMin, leafTri.vertex0 );
+		node.aabbMin = fminf( node.aabbMin, leafTri.vertex1 );
+		node.aabbMin = fminf( node.aabbMin, leafTri.vertex2 );
+		node.aabbMax = fmaxf( node.aabbMax, leafTri.vertex0 );
+		node.aabbMax = fmaxf( node.aabbMax, leafTri.vertex1 );
+		node.aabbMax = fmaxf( node.aabbMax, leafTri.vertex2 );
+		centroidMin = fminf( centroidMin, leafTri.centroid );
+		centroidMax = fmaxf( centroidMax, leafTri.centroid );
+	}
+#endif
 }
 
 // BVHInstance implementation
@@ -320,19 +428,20 @@ TLAS::TLAS( BVHInstance* bvhList, int N )
 	blas = bvhList;
 	blasCount = N;
 	// allocate TLAS nodes
-	tlasNode = (TLASNode*)_aligned_malloc( sizeof( TLASNode ) * 2 * N, 64 );
+	tlasNode = (TLASNode*)_aligned_malloc( sizeof( TLASNode ) * 2 * (N + 64), 64 );
+	nodeIdx = new uint[N];
 	nodesUsed = 2;
 }
 
-int TLAS::FindBestMatch( int* list, int N, int A )
+int TLAS::FindBestMatch( int N, int A )
 {
 	// find BLAS B that, when joined with A, forms the smallest AABB
 	float smallest = 1e30f;
 	int bestB = -1;
 	for (int B = 0; B < N; B++) if (B != A)
 	{
-		float3 bmax = fmaxf( tlasNode[list[A]].aabbMax, tlasNode[list[B]].aabbMax );
-		float3 bmin = fminf( tlasNode[list[A]].aabbMin, tlasNode[list[B]].aabbMin );
+		float3 bmax = fmaxf( tlasNode[nodeIdx[A]].aabbMax, tlasNode[nodeIdx[B]].aabbMax );
+		float3 bmin = fminf( tlasNode[nodeIdx[A]].aabbMin, tlasNode[nodeIdx[B]].aabbMin );
 		float3 e = bmax - bmin;
 		float surfaceArea = e.x * e.y + e.y * e.z + e.z * e.x;
 		if (surfaceArea < smallest) smallest = surfaceArea, bestB = B;
@@ -343,7 +452,6 @@ int TLAS::FindBestMatch( int* list, int N, int A )
 void TLAS::Build()
 {
 	// assign a TLASleaf node to each BLAS
-	int nodeIdx[11042], nodeIndices = blasCount;
 	nodesUsed = 1;
 	for (uint i = 0; i < blasCount; i++)
 	{
@@ -354,10 +462,12 @@ void TLAS::Build()
 		tlasNode[nodesUsed++].leftRight = 0; // makes it a leaf
 	}
 	// use agglomerative clustering to build the TLAS
-	int A = 0, B = FindBestMatch( nodeIdx, nodeIndices, A );
+	int nodeIndices = blasCount;
+	int A = 0, B = FindBestMatch( nodeIndices, A );
+	FILE* f = fopen( "pairs.txt", "w" );
 	while (nodeIndices > 1)
 	{
-		int C = FindBestMatch( nodeIdx, nodeIndices, B );
+		int C = FindBestMatch( nodeIndices, B );
 		if (A == C)
 		{
 			// found a pair: create a new TLAS interior node
@@ -368,14 +478,210 @@ void TLAS::Build()
 			newNode.aabbMin = fminf( nodeA.aabbMin, nodeB.aabbMin );
 			newNode.aabbMax = fmaxf( nodeA.aabbMax, nodeB.aabbMax );
 			newNode.leftRight = nodeIdxA + (nodeIdxB << 16);
+			fprintf( f, "%i,%i\n", nodeIdxA, nodeIdxB );
 			nodeIdx[A] = nodesUsed++;
 			nodeIdx[B] = nodeIdx[nodeIndices - 1];
-			B = FindBestMatch( nodeIdx, --nodeIndices, A );
+			B = FindBestMatch( --nodeIndices, A );
+		}
+		else A = B, B = C;
+	}
+	fclose( f );
+	// copy last remaining node to the root node
+	tlasNode[0] = tlasNode[nodeIdx[A]];
+}
+
+void TLAS::SortAndSplit( uint first, uint last, uint level )
+{
+	if (!item) item = new SortItem[blasCount];
+	uint axis = level % 3; // TODO: use dominant axis at each level?
+	if (level == 0)
+	{
+		for (uint i = 0; i < blasCount; i++) item[i].blasIdx = i;
+		treeIdx = 0;
+	}
+	for (uint idx, i = first; i <= last; i++)
+		idx = item[i].blasIdx,
+		item[i].pos = (blas[idx].bounds.bmin[axis] + blas[idx].bounds.bmin[axis]) * 0.5f;
+	QuickSort( item, first, last );
+	uint half = (first + last) >> 1;
+	if (level < 3)
+	{
+		SortAndSplit( first, half, level + 1 );
+		SortAndSplit( half + 1, last, level + 1 );
+		return;
+	}
+	// create chunks
+	for (uint i = first; i <= half; i++)
+	{
+		BVHInstance& b = blas[item[i].blasIdx];
+		tlasNode[nodesUsed].aabbMin = b.bounds.bmin;
+		tlasNode[nodesUsed].aabbMax = b.bounds.bmax;
+		tlasNode[nodesUsed].BLAS = item[i].blasIdx;
+		tlasNode[nodesUsed++].leftRight = 0; // makes it a leaf
+	}
+	if (!tree[treeIdx]) tree[treeIdx] = new KDTree( tlasNode + first + 32, half - first + 1, first + 32 );
+	treeSize[treeIdx++] = half - first + 1;
+	for (uint i = half + 1; i <= last; i++)
+	{
+		BVHInstance& b = blas[item[i].blasIdx];
+		tlasNode[nodesUsed].aabbMin = b.bounds.bmin;
+		tlasNode[nodesUsed].aabbMax = b.bounds.bmax;
+		tlasNode[nodesUsed].BLAS = item[i].blasIdx;
+		tlasNode[nodesUsed++].leftRight = 0; // makes it a leaf
+	}
+	if (!tree[treeIdx]) tree[treeIdx] = new KDTree( tlasNode + half + 33, last - half, half + 33 );
+	treeSize[treeIdx++] = last - half;
+}
+
+void TLAS::CreateParent( uint idx, uint left, uint right )
+{
+	tlasNode[idx].left = left, tlasNode[idx].right = right;
+	tlasNode[idx].aabbMin = fminf( tlasNode[left].aabbMin, tlasNode[right].aabbMin );
+	tlasNode[idx].aabbMax = fmaxf( tlasNode[left].aabbMax, tlasNode[right].aabbMax );
+}
+
+void TLAS::QuickSort( SortItem a[], int first, int last )
+{
+	struct Task { uint first, last; };
+	_declspec (align(64)) Task stack[64];
+	uint& stackPtr = stack[0].first; // so it sits in the same cacheline
+	stackPtr = 1;
+	while (1)
+	{
+		while (1)
+		{
+			if (first >= last) break;
+			int p = first;
+			SortItem e = a[first];
+			for (int i = first + 1; i <= last; i++) if (a[i].pos <= e.pos) Swap( a[i], a[++p] );
+			Swap( a[p], a[first] );
+			stack[stackPtr].first = p + 1, stack[stackPtr++].last = last, last = p - 1;
+		}
+		if (stackPtr == 1) break;
+		first = stack[--stackPtr].first, last = stack[stackPtr].last;
+	}
+}
+
+void TLAS::BuildQuick()
+{
+	// single-threaded code, for reference
+#if 0
+	// assign a TLASleaf node to each BLAS
+	nodesUsed = 1;
+	for (uint i = 0; i < blasCount; i++)
+	{
+		tlasNode[nodesUsed].aabbMin = blas[i].bounds.bmin;
+		tlasNode[nodesUsed].aabbMax = blas[i].bounds.bmax;
+		tlasNode[nodesUsed].BLAS = i;
+		tlasNode[nodesUsed++].leftRight = 0; // makes it a leaf
+	}
+	// build a kD-tree over the TLAS nodes
+	static KDTree* kdtree = 0;
+	if (!kdtree) kdtree = new KDTree( tlasNode + 1, nodesUsed - 1, 1 /* skip root */ );
+	Timer t;
+	kdtree->rebuild();
+	printf( "kdtree rebuild: %.2fms, ", t.elapsed() * 1000 );
+	// use the kD-tree for fast agglomerative clustering
+	float sa = 1e30f;
+	uint best = 0, workLeft = blasCount, A, B = kdtree->FindNearest( A = 1, best, sa );
+	while (1)
+	{
+		int C = kdtree->FindNearest( B, best = A, sa );
+		if (A == C)
+		{
+			// found a pair: create a new TLAS interior node
+			TLASNode& newNode = tlasNode[nodesUsed];
+			newNode.aabbMin = fminf( tlasNode[A].aabbMin, tlasNode[B].aabbMin );
+			newNode.aabbMax = fmaxf( tlasNode[A].aabbMax, tlasNode[B].aabbMax );
+			newNode.leftRight = A + (B << 16);
+			if (workLeft-- == 2) break;
+			kdtree->removeLeaf( A );
+			kdtree->removeLeaf( B );
+			kdtree->add( A = nodesUsed++ );
+			B = kdtree->FindNearest( A, best = 0, sa = 1e30f );
 		}
 		else A = B, B = C;
 	}
 	// copy last remaining node to the root node
-	tlasNode[0] = tlasNode[nodeIdx[A]];
+	tlasNode[0] = tlasNode[nodesUsed];
+#elif 1
+	// building the TLAS top-down, fastest option for the Boids demo
+	static Mesh m;
+	if (!m.tri) m = Mesh( blasCount );
+	for (uint i = 0; i < blasCount; i++)
+	{
+		m.tri[i].vertex0 = blas[i].bounds.bmin;
+		m.tri[i].vertex1 = blas[i].bounds.bmax;
+		m.tri[i].vertex2 = (blas[i].bounds.bmin + blas[i].bounds.bmax) * 0.5f; // degenerate but with the correct aabb
+	}
+	if (!m.bvh)
+	{
+		m.bvh = new BVH( &m );
+		m.bvh->subdivToOnePrim = true;
+	}
+	m.bvh->Build();
+	// copy the BVH to a TLAS
+	memcpy( tlasNode, m.bvh->bvhNode, m.bvh->nodesUsed * sizeof( BVHNode ) );
+	if (m.bvh->nodesUsed != blasCount * 2)
+	{
+		int w = 0;
+	}
+	for (uint i = 0; i < m.bvh->nodesUsed; i++) if (i != 1)
+	{
+		const BVHNode& n = m.bvh->bvhNode[i];
+		if (n.isLeaf())
+			tlasNode[i].BLAS = m.bvh->triIdx[n.leftFirst],
+			tlasNode[i].leftRight = 0; // mark as leaf
+		else
+			tlasNode[i].leftRight = n.leftFirst + ((n.leftFirst + 1) << 16);
+	}
+#else
+	// multi-threaded, using sorted pre-splitting. TODO: generalize to 2^N threads.
+	// 1. sort the list of TLAS nodes
+	if (!item) item = new SortItem[blasCount];
+	uint axis = 0; // TODO: dominant axis
+	for (uint i = 0; i < blasCount; i++) item[i].blasIdx = i;
+	// 2. split the sorted list into two equally-sized groups
+	nodesUsed = 32;
+	SortAndSplit( 0, blasCount - 1, 0 );
+	// 3. perform agglomerative clustering
+#pragma omp parallel for
+	for (int i = 0; i < 16; i++)
+	{
+		tree[i]->rebuild();
+		float sa = 1e30f;
+		uint A = 32, B, best = 0, workLeft = treeSize[i], nodePtr = blasCount + 32;
+		for (int j = 0; j < i; j++) A += treeSize[j], nodePtr += treeSize[j] - 1;
+		B = tree[i]->FindNearest( A, best, sa );
+		while (1)
+		{
+			int C = tree[i]->FindNearest( B, best = A, sa );
+			if (A == C)
+			{
+				// found a pair: create a new TLAS interior node
+				TLASNode& newNode = tlasNode[nodePtr];
+				newNode.aabbMin = fminf( tlasNode[A].aabbMin, tlasNode[B].aabbMin );
+				newNode.aabbMax = fmaxf( tlasNode[A].aabbMax, tlasNode[B].aabbMax );
+				newNode.leftRight = A + (B << 16);
+				if (workLeft-- == 2) break;
+				tree[i]->removeLeaf( A );
+				tree[i]->removeLeaf( B );
+				tree[i]->add( A = nodePtr++ );
+				B = tree[i]->FindNearest( A, best = 0, sa = 1e30f );
+			}
+			else A = B, B = C;
+		}
+		// copy last remaining node to the root node
+		tlasNode[i + 15] = tlasNode[nodePtr];
+	}
+	// 4. join together the resulting trees
+	for (int i = 0; i < 8; i++) CreateParent( 7 + i, 15 + 2 * i, 16 + 2 * i );
+	for (int i = 0; i < 4; i++) CreateParent( 3 + i, 7 + 2 * i, 8 + 2 * i );
+	for (int i = 0; i < 2; i++) CreateParent( 1 + i, 3 + 2 * i, 4 + 2 * i );
+	CreateParent( 0, 1, 2 );
+	// 5. profit.
+	nodesUsed = 2 * blasCount + 64;
+#endif
 }
 
 void TLAS::Intersect( Ray& ray )

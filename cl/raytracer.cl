@@ -11,6 +11,8 @@ float3 Trace( struct Ray* ray, float* skyPixels,
 	struct BVHNode* bvhNodeData, uint* idxData 
 )
 {
+#if 1
+	// default renderer
 	int rayDepth = 0;
 	float3 R;
 	// bounce until we hit the sky or a diffuse surface
@@ -61,6 +63,14 @@ float3 Trace( struct Ray* ray, float* skyPixels,
 		rayDepth++;
 	}
 	return (float3)( 1, 1, 1 );
+#else
+	// minimal depth renderer for performance experiments
+	TLASIntersect( ray, triData, instData, tlasData, bvhNodeData, idxData );
+	struct Intersection i = ray->hit;
+	if (i.t == 1e30f) return (float3)( 0, 0, 0 );
+	float d = 4.0f / i.t;
+	return (float3)( d, d, d );
+#endif
 }
 
 __kernel void render( 
@@ -92,9 +102,9 @@ __kernel void render(
 		ray.D = normalize( pixelPos - ray.O );
 		ray.hit.t = 1e30f; // 1e30f denotes 'no hit'
 		// trace the primary ray
-		color += 0.5f * Trace( &ray, skyPixels, instData, tlasData, texData, triData, triExData, bvhNodeData, idxData );
+		color += Trace( &ray, skyPixels, instData, tlasData, texData, triData, triExData, bvhNodeData, idxData );
 	}
-	write_imagef( target, (int2)(x, y), (float4)( color, 1 ) );
+	write_imagef( target, (int2)(x, y), (float4)( color * (1.0f / 2.0f), 1 ) );
 }
 
 // EOF

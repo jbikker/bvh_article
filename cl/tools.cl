@@ -38,10 +38,10 @@ struct Ray
 
 struct Tri
 {
-	float v0x, v0y, v0z;
-	float v1x, v1y, v1z;
-	float v2x, v2y, v2z;
-	float cx, cy, cz;
+	float v0x, v0y, v0z, dummy1;
+	float v1x, v1y, v1z, dummy2;
+	float v2x, v2y, v2z, dummy3;
+	float cx, cy, cz, dummy4;
 };
 
 struct TriEx
@@ -125,10 +125,10 @@ void IntersectTri( struct Ray* ray, struct Tri* tri, const uint instPrim )
 	float f = 1 / a;
 	float3 s = ray->O - v0;
 	float u = f * dot( s, h );
-	if (u < 0 || u > 1) return;
+	if (u < 0 | u > 1) return;
 	const float3 q = cross( s, edge1 );
 	const float v = f * dot( ray->D, q );
-	if (v < 0 || u + v > 1) return;
+	if (v < 0 | u + v > 1) return;
 	const float t = f * dot( edge2, q );
 	if (t > 0.0001f && t < ray->hit.t)
 		ray->hit.t = t, ray->hit.u = u,
