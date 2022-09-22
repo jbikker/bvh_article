@@ -14,7 +14,7 @@ float3 Trace( struct Ray* ray, float* skyPixels,
 	int rayDepth = 0;
 	float3 R;
 	// bounce until we hit the sky or a diffuse surface
-	while (rayDepth < 4)
+	while (rayDepth < 2)
 	{
 		TLASIntersect( ray, triData, instData, tlasData, bvhNodeData, idxData );
 		struct Intersection i = ray->hit;
@@ -45,7 +45,7 @@ float3 Trace( struct Ray* ray, float* skyPixels,
 		{
 			// calculate the specular reflection in the intersection point
 			float3 R = ray->D - (2 * N * dot( N, ray->D ));
-			if (rayDepth == 1) return SampleSky( &R, skyPixels );
+			if (rayDepth >= 1) return SampleSky( &R, skyPixels );
 			ray->D = R;
 			ray->O = I + ray->D * 0.005f;
 			ray->hit.t = 1e30f;
@@ -83,7 +83,7 @@ __kernel void render(
 	// create a primary ray for the pixel
 	struct Ray ray;
 	float3 color = (float3)( 0, 0, 0 );
-	for( int i = 0; i < 4; i++ )
+	for( int i = 0; i < 2; i++ )
 	{
 		float3 pixelPos = p0 +
 			(p1 - p0) * (((float)x + RandomFloat( &seed )) / SCRWIDTH) +
@@ -92,7 +92,7 @@ __kernel void render(
 		ray.D = normalize( pixelPos - ray.O );
 		ray.hit.t = 1e30f; // 1e30f denotes 'no hit'
 		// trace the primary ray
-		color += 0.25f * Trace( &ray, skyPixels, instData, tlasData, texData, triData, triExData, bvhNodeData, idxData );
+		color += 0.5f * Trace( &ray, skyPixels, instData, tlasData, texData, triData, triExData, bvhNodeData, idxData );
 	}
 	write_imagef( target, (int2)(x, y), (float4)( color, 1 ) );
 }

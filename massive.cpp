@@ -13,7 +13,7 @@
 
 
 // on less powerful hardware increase this number to reduce the number of dragons
-#define SKIP 1
+#define SKIP 10
 
 TheApp* CreateApp() { return new MassiveApp(); }
 
