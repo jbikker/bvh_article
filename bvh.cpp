@@ -194,18 +194,6 @@ void BVH::Build()
 	// subdivide recursively
 	buildStackPtr = 0;
 	Subdivide( 0, 0, nodesUsed, centroidMin, centroidMax );
-	// do the parallel tasks, if any
-	uint nodePtr[64];
-	int N = buildStackPtr;
-	nodePtr[0] = nodesUsed;
-	for (int i = 1; i < N; i++) nodePtr[i] = nodePtr[i - 1] + bvhNode[buildStack[i - 1].nodeIdx].triCount * 2;
-	#pragma omp parallel for schedule(dynamic,1)
-	for (int i = 0; i < N; i++)
-	{
-		float3 cmin = buildStack[i].centroidMin, cmax = buildStack[i].centroidMax;
-		Subdivide( buildStack[i].nodeIdx, 99, nodePtr[i], cmin, cmax );
-	}
-	nodesUsed = mesh->triCount * 2 + 64;
 }
 
 void BVH::Subdivide( uint nodeIdx, uint depth, uint& nodePtr, float3& centroidMin, float3& centroidMax )
@@ -248,23 +236,9 @@ void BVH::Subdivide( uint nodeIdx, uint depth, uint& nodePtr, float3& centroidMi
 	node.triCount = 0;
 	// recurse
 	UpdateNodeBounds( leftChildIdx, centroidMin, centroidMax );
-	if (depth == 3)
-	{
-		// postpone the work, we'll do this in parallel later
-		buildStack[buildStackPtr].nodeIdx = leftChildIdx;
-		buildStack[buildStackPtr].centroidMin = centroidMin;
-		buildStack[buildStackPtr++].centroidMax = centroidMax;
-	}
-	else Subdivide( leftChildIdx, depth + 1, nodePtr, centroidMin, centroidMax );
+	Subdivide( leftChildIdx, depth + 1, nodePtr, centroidMin, centroidMax );
 	UpdateNodeBounds( rightChildIdx, centroidMin, centroidMax );
-	if (depth == 3)
-	{
-		// postpone the work, we'll do this in parallel later
-		buildStack[buildStackPtr].nodeIdx = rightChildIdx;
-		buildStack[buildStackPtr].centroidMin = centroidMin;
-		buildStack[buildStackPtr++].centroidMax = centroidMax;
-	}
-	else Subdivide( rightChildIdx, depth + 1, nodePtr, centroidMin, centroidMax );
+	Subdivide( rightChildIdx, depth + 1, nodePtr, centroidMin, centroidMax );
 }
 
 float BVH::FindBestSplitPlane( BVHNode& node, int& axis, int& splitPos, float3& centroidMin, float3& centroidMax )
@@ -464,28 +438,6 @@ void TLAS::Build()
 	// use agglomerative clustering to build the TLAS
 	int nodeIndices = blasCount;
 	int A = 0, B = FindBestMatch( nodeIndices, A );
-	FILE* f = fopen( "pairs.txt", "w" );
-	while (nodeIndices > 1)
-	{
-		int C = FindBestMatch( nodeIndices, B );
-		if (A == C)
-		{
-			// found a pair: create a new TLAS interior node
-			int nodeIdxA = nodeIdx[A], nodeIdxB = nodeIdx[B];
-			TLASNode& nodeA = tlasNode[nodeIdxA];
-			TLASNode& nodeB = tlasNode[nodeIdxB];
-			TLASNode& newNode = tlasNode[nodesUsed];
-			newNode.aabbMin = fminf( nodeA.aabbMin, nodeB.aabbMin );
-			newNode.aabbMax = fmaxf( nodeA.aabbMax, nodeB.aabbMax );
-			newNode.leftRight = nodeIdxA + (nodeIdxB << 16);
-			fprintf( f, "%i,%i\n", nodeIdxA, nodeIdxB );
-			nodeIdx[A] = nodesUsed++;
-			nodeIdx[B] = nodeIdx[nodeIndices - 1];
-			B = FindBestMatch( --nodeIndices, A );
-		}
-		else A = B, B = C;
-	}
-	fclose( f );
 	// copy last remaining node to the root node
 	tlasNode[0] = tlasNode[nodeIdx[A]];
 }
@@ -564,47 +516,6 @@ void TLAS::QuickSort( SortItem a[], int first, int last )
 
 void TLAS::BuildQuick()
 {
-	// single-threaded code, for reference
-#if 0
-	// assign a TLASleaf node to each BLAS
-	nodesUsed = 1;
-	for (uint i = 0; i < blasCount; i++)
-	{
-		tlasNode[nodesUsed].aabbMin = blas[i].bounds.bmin;
-		tlasNode[nodesUsed].aabbMax = blas[i].bounds.bmax;
-		tlasNode[nodesUsed].BLAS = i;
-		tlasNode[nodesUsed++].leftRight = 0; // makes it a leaf
-	}
-	// build a kD-tree over the TLAS nodes
-	static KDTree* kdtree = 0;
-	if (!kdtree) kdtree = new KDTree( tlasNode + 1, nodesUsed - 1, 1 /* skip root */ );
-	Timer t;
-	kdtree->rebuild();
-	printf( "kdtree rebuild: %.2fms, ", t.elapsed() * 1000 );
-	// use the kD-tree for fast agglomerative clustering
-	float sa = 1e30f;
-	uint best = 0, workLeft = blasCount, A, B = kdtree->FindNearest( A = 1, best, sa );
-	while (1)
-	{
-		int C = kdtree->FindNearest( B, best = A, sa );
-		if (A == C)
-		{
-			// found a pair: create a new TLAS interior node
-			TLASNode& newNode = tlasNode[nodesUsed];
-			newNode.aabbMin = fminf( tlasNode[A].aabbMin, tlasNode[B].aabbMin );
-			newNode.aabbMax = fmaxf( tlasNode[A].aabbMax, tlasNode[B].aabbMax );
-			newNode.leftRight = A + (B << 16);
-			if (workLeft-- == 2) break;
-			kdtree->removeLeaf( A );
-			kdtree->removeLeaf( B );
-			kdtree->add( A = nodesUsed++ );
-			B = kdtree->FindNearest( A, best = 0, sa = 1e30f );
-		}
-		else A = B, B = C;
-	}
-	// copy last remaining node to the root node
-	tlasNode[0] = tlasNode[nodesUsed];
-#elif 1
 	// building the TLAS top-down, fastest option for the Boids demo
 	static Mesh m;
 	if (!m.tri) m = Mesh( blasCount );
@@ -622,10 +533,6 @@ void TLAS::BuildQuick()
 	m.bvh->Build();
 	// copy the BVH to a TLAS
 	memcpy( tlasNode, m.bvh->bvhNode, m.bvh->nodesUsed * sizeof( BVHNode ) );
-	if (m.bvh->nodesUsed != blasCount * 2)
-	{
-		int w = 0;
-	}
 	for (uint i = 0; i < m.bvh->nodesUsed; i++) if (i != 1)
 	{
 		const BVHNode& n = m.bvh->bvhNode[i];
@@ -635,53 +542,6 @@ void TLAS::BuildQuick()
 		else
 			tlasNode[i].leftRight = n.leftFirst + ((n.leftFirst + 1) << 16);
 	}
-#else
-	// multi-threaded, using sorted pre-splitting. TODO: generalize to 2^N threads.
-	// 1. sort the list of TLAS nodes
-	if (!item) item = new SortItem[blasCount];
-	uint axis = 0; // TODO: dominant axis
-	for (uint i = 0; i < blasCount; i++) item[i].blasIdx = i;
-	// 2. split the sorted list into two equally-sized groups
-	nodesUsed = 32;
-	SortAndSplit( 0, blasCount - 1, 0 );
-	// 3. perform agglomerative clustering
-#pragma omp parallel for
-	for (int i = 0; i < 16; i++)
-	{
-		tree[i]->rebuild();
-		float sa = 1e30f;
-		uint A = 32, B, best = 0, workLeft = treeSize[i], nodePtr = blasCount + 32;
-		for (int j = 0; j < i; j++) A += treeSize[j], nodePtr += treeSize[j] - 1;
-		B = tree[i]->FindNearest( A, best, sa );
-		while (1)
-		{
-			int C = tree[i]->FindNearest( B, best = A, sa );
-			if (A == C)
-			{
-				// found a pair: create a new TLAS interior node
-				TLASNode& newNode = tlasNode[nodePtr];
-				newNode.aabbMin = fminf( tlasNode[A].aabbMin, tlasNode[B].aabbMin );
-				newNode.aabbMax = fmaxf( tlasNode[A].aabbMax, tlasNode[B].aabbMax );
-				newNode.leftRight = A + (B << 16);
-				if (workLeft-- == 2) break;
-				tree[i]->removeLeaf( A );
-				tree[i]->removeLeaf( B );
-				tree[i]->add( A = nodePtr++ );
-				B = tree[i]->FindNearest( A, best = 0, sa = 1e30f );
-			}
-			else A = B, B = C;
-		}
-		// copy last remaining node to the root node
-		tlasNode[i + 15] = tlasNode[nodePtr];
-	}
-	// 4. join together the resulting trees
-	for (int i = 0; i < 8; i++) CreateParent( 7 + i, 15 + 2 * i, 16 + 2 * i );
-	for (int i = 0; i < 4; i++) CreateParent( 3 + i, 7 + 2 * i, 8 + 2 * i );
-	for (int i = 0; i < 2; i++) CreateParent( 1 + i, 3 + 2 * i, 4 + 2 * i );
-	CreateParent( 0, 1, 2 );
-	// 5. profit.
-	nodesUsed = 2 * blasCount + 64;
-#endif
 }
 
 void TLAS::Intersect( Ray& ray )
