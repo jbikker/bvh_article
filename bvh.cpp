@@ -303,13 +303,11 @@ float BVH::FindBestSplitPlane( BVHNode& node, int& axis, int& splitPos, float3& 
 		for (int i = 0; i < BINS - 1; i++)
 		{
 			leftSum += bin[i].triCount;
-			leftCount[i] = leftSum;
 			leftBox.grow( bin[i].bounds );
-			leftArea[i] = leftBox.area();
+			leftCountArea[i] = leftSum * leftBox.area();
 			rightSum += bin[BINS - 1 - i].triCount;
-			rightCount[BINS - 2 - i] = rightSum;
 			rightBox.grow( bin[BINS - 1 - i].bounds );
-			rightArea[BINS - 2 - i] = rightBox.area();
+			rightCountArea[BINS - 2 - i] = rightSum * rightBox.area();
 		}
 	#endif
 		// calculate SAH cost for the 7 planes
