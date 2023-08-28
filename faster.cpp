@@ -267,16 +267,22 @@ void FasterRaysApp::Tick( float deltaTime )
 {
 	// draw the scene
 	screen->Clear( 0 );
-	float3 p0( -1, 1, 2 ), p1( 1, 1, 2 ), p2( -1, -1, 2 );
+	// define the corners of the screen in worldspace
+	float3 p0( -2.5f, 0.8f, -0.5f ), p1( -0.5f, 0.8f, -0.5f ), p2( -2.5f, -1.2f, -0.5f );
 	Ray ray;
 	Timer t;
+	// render tiles of pixels
 	for (int y = 0; y < SCRHEIGHT; y += 4) for (int x = 0; x < SCRWIDTH; x += 4)
 	{
+		// render a single tile
 		for (int v = 0; v < 4; v++) for (int u = 0; u < 4; u++)
 		{
+			// calculate the position of a pixel on the screen in worldspace
+			float3 pixelPos = p0 + (p1 - p0) * ((x + u) / (float)SCRWIDTH) + (p2 - p0) * ((y + v) / (float)SCRHEIGHT);
+			// define the ray in worldspace
 			ray.O = float3( -1.5f, -0.2f, -2.5f );
-			float3 pixelPos = ray.O + p0 + (p1 - p0) * ((x + u) / (float)SCRWIDTH) + (p2 - p0) * ((y + v) / (float)SCRHEIGHT);
 			ray.D = normalize( pixelPos - ray.O ), ray.t = 1e30f;
+			// calculare reciprocal ray directions to speedup AABB intersections
 			ray.rD = float3( 1 / ray.D.x, 1 / ray.D.y, 1 / ray.D.z );
 			IntersectBVH( ray );
 			uint c = 500 - (int)(ray.t * 42);

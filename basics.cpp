@@ -174,14 +174,18 @@ void BasicBVHApp::Tick( float deltaTime )
 {
 	// draw the scene
 	screen->Clear( 0 );
+	// define the corners of the screen in worldspace
 	float3 p0( -1, 1, -15 ), p1( 1, 1, -15 ), p2( -1, -1, -15 );
 	Ray ray;
 	Timer t;
 	for (int y = 0; y < SCRHEIGHT; y++) for (int x = 0; x < SCRWIDTH; x++)
 	{
+		// calculate the position of a pixel on the screen in worldspace
 		float3 pixelPos = p0 + (p1 - p0) * (x / (float)SCRWIDTH) + (p2 - p0) * (y / (float)SCRHEIGHT);
+		// define the ray in worldspace
 		ray.O = float3( 0, 0, -18 );
 		ray.D = normalize( pixelPos - ray.O );
+		// initially the ray has an 'infinite length'
 		ray.t = 1e30f;
 	#if 0
 		for( int i = 0; i < N; i++ ) IntersectTri( ray, tri[i] );
