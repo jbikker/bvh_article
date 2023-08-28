@@ -43,7 +43,7 @@ void PrettyApp::AnimateScene()
 		bvhInstance[i].SetTransform( T * R * mat4::Scale( 1.5f ) );
 	}
 	// update the TLAS
-	tlas.Build();
+	tlas.BuildQuick();
 }
 
 float3 PrettyApp::Trace( Ray& ray )
