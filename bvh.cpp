@@ -622,10 +622,6 @@ void TLAS::BuildQuick()
 	m.bvh->Build();
 	// copy the BVH to a TLAS
 	memcpy( tlasNode, m.bvh->bvhNode, m.bvh->nodesUsed * sizeof( BVHNode ) );
-	if (m.bvh->nodesUsed != blasCount * 2)
-	{
-		int w = 0;
-	}
 	for (uint i = 0; i < m.bvh->nodesUsed; i++) if (i != 1)
 	{
 		const BVHNode& n = m.bvh->bvhNode[i];

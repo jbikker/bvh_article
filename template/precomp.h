@@ -32,7 +32,7 @@
 // C++ practice but a simplification for template projects.
 using namespace std;
 
-// windows
+// windows.h: disable as much as possible to speed up compilation.
 #define NOMINMAX
 #ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN
@@ -76,7 +76,6 @@ using namespace std;
 #define NOMCX
 #define NOIME
 #include "windows.h"
-// #include "lib/win_tiny.h" // windows.h replacement for faster builds (doesn't really help)
 
 // OpenCL headers
 #define CL_USE_DEPRECATED_OPENCL_2_0_APIS // safe; see https://stackoverflow.com/a/28500846
