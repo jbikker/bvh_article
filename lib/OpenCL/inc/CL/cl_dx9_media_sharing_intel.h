@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2008-2021 The Khronos Group Inc.
+ * Copyright (c) 2008-2020 The Khronos Group Inc.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -14,5 +14,5 @@
  * limitations under the License.
  ******************************************************************************/
 
-#include <CL/cl_gl.h>
-#pragma message("The extensions in cl_gl_ext.h have been moved into cl_gl.h.  Please include cl_gl.h directly.")
+#include <CL/cl_dx9_media_sharing.h>
+#pragma message("The Intel DX9 media sharing extensions have been moved into cl_dx9_media_sharing.h.  Please include cl_dx9_media_sharing.h directly.")

@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2008-2021 The Khronos Group Inc.
+ * Copyright (c) 2008-2020 The Khronos Group Inc.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -12,7 +12,8 @@
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
  * See the License for the specific language governing permissions and
  * limitations under the License.
+ *
  ******************************************************************************/
 
-#include <CL/cl_gl.h>
-#pragma message("The extensions in cl_gl_ext.h have been moved into cl_gl.h.  Please include cl_gl.h directly.")
+#include <CL/cl_ext.h>
+#pragma message("The Intel extensions have been moved into cl_ext.h.  Please include cl_ext.h directly.")

@@ -78,9 +78,9 @@ using namespace std;
 #include "windows.h"
 
 // OpenCL headers
-#define CL_USE_DEPRECATED_OPENCL_2_0_APIS // safe; see https://stackoverflow.com/a/28500846
+#define CL_TARGET_OPENCL_VERSION 300
 #include "cl/cl.h"
-#include <cl/cl_gl_ext.h>
+#include <cl/cl_gl.h>
 
 // GLFW
 #define GLFW_USE_CHDIR 0

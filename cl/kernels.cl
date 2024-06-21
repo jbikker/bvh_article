@@ -63,7 +63,7 @@ struct BVHInstance
 	uint dummy[6];
 };
 
-void IntersectTri( struct Ray* ray, struct Tri* tri, const uint instPrim )
+void IntersectTri( struct Ray* ray, __global struct Tri* tri, const uint instPrim )
 {
 	float3 v0 = (float3)(tri->v0x, tri->v0y, tri->v0z);
 	float3 v1 = (float3)(tri->v1x, tri->v1y, tri->v1z);
@@ -85,7 +85,7 @@ void IntersectTri( struct Ray* ray, struct Tri* tri, const uint instPrim )
 		ray->hit.v = v, ray->hit.instPrim = instPrim;
 }
 
-float IntersectAABB( struct Ray* ray, struct BVHNode* node )
+float IntersectAABB( struct Ray* ray, __global struct BVHNode* node )
 {
 	float tx1 = (node->minx - ray->O.x) * ray->rD.x, tx2 = (node->maxx - ray->O.x) * ray->rD.x;
 	float tmin = min( tx1, tx2 ), tmax = max( tx1, tx2 );
@@ -97,10 +97,10 @@ float IntersectAABB( struct Ray* ray, struct BVHNode* node )
 }
 
 void BVHIntersect( struct Ray* ray, uint instanceIdx, 
-	struct Tri* tri, struct BVHNode* bvhNode, uint* triIdx )
+	__global struct Tri* tri, __global struct BVHNode* bvhNode, __global uint* triIdx )
 {
 	ray->rD = (float3)( 1 / ray->D.x, 1 / ray->D.y, 1 / ray->D.z );
-	struct BVHNode* node = &bvhNode[0], *stack[32];
+	__global struct BVHNode* node = &bvhNode[0], *stack[32];
 	uint stackPtr = 0;
 	while (1)
 	{
@@ -114,14 +114,14 @@ void BVHIntersect( struct Ray* ray, uint instanceIdx,
 			if (stackPtr == 0) break; else node = stack[--stackPtr];
 			continue;
 		}
-		struct BVHNode* child1 = &bvhNode[node->leftFirst];
-		struct BVHNode* child2 = &bvhNode[node->leftFirst + 1];
+		__global struct BVHNode* child1 = &bvhNode[node->leftFirst];
+		__global struct BVHNode* child2 = &bvhNode[node->leftFirst + 1];
 		float dist1 = IntersectAABB( ray, child1 );
 		float dist2 = IntersectAABB( ray, child2 );
 		if (dist1 > dist2) 
 		{ 
 			float d = dist1; dist1 = dist2; dist2 = d;
-			struct BVHNode* c = child1; child1 = child2; child2 = c; 
+			__global struct BVHNode* c = child1; child1 = child2; child2 = c; 
 		}
 		if (dist1 == 1e30f)
 		{
@@ -135,7 +135,8 @@ void BVHIntersect( struct Ray* ray, uint instanceIdx,
 	}
 }
 
-float3 Trace( struct Ray* ray, float* skyPixels, struct Tri* triData, struct BVHNode* bvhNodeData, uint* idxData )
+float3 Trace( struct Ray* ray, __global float* skyPixels, __global struct Tri* triData, 
+	__global struct BVHNode* bvhNodeData, __global uint* idxData )
 {
 	// see if we hit a teapot
 	BVHIntersect( ray, 0, triData, bvhNodeData, idxData );
