@@ -23,10 +23,10 @@ struct Ray
 
 struct Tri 
 { 
-	float v0x, v0y, v0z;
-	float v1x, v1y, v1z;
-	float v2x, v2y, v2z;
-	float cx, cy, cz;
+	float v0x, v0y, v0z, dummy0;
+	float v1x, v1y, v1z, dummy1;
+	float v2x, v2y, v2z, dummy2;
+	float cx, cy, cz, dummy3;
 };
 
 struct TriEx 
@@ -81,8 +81,12 @@ void IntersectTri( struct Ray* ray, __global struct Tri* tri, const uint instPri
 	if (v < 0 || u + v > 1) return;
 	const float t = f * dot( edge2, q );
 	if (t > 0.0001f && t < ray->hit.t)
-		ray->hit.t = t, ray->hit.u = u,
-		ray->hit.v = v, ray->hit.instPrim = instPrim;
+	{
+		ray->hit.t = t;
+		ray->hit.u = u;
+		ray->hit.v = v;
+		ray->hit.instPrim = instPrim;
+	}
 }
 
 float IntersectAABB( struct Ray* ray, __global struct BVHNode* node )
@@ -116,6 +120,10 @@ void BVHIntersect( struct Ray* ray, uint instanceIdx,
 		}
 		__global struct BVHNode* child1 = &bvhNode[node->leftFirst];
 		__global struct BVHNode* child2 = &bvhNode[node->leftFirst + 1];
+	#if 0
+		node = child1;
+		stack[stackPtr++] = child2;
+	#else
 		float dist1 = IntersectAABB( ray, child1 );
 		float dist2 = IntersectAABB( ray, child2 );
 		if (dist1 > dist2) 
@@ -132,6 +140,7 @@ void BVHIntersect( struct Ray* ray, uint instanceIdx,
 			node = child1;
 			if (dist2 != 1e30f) stack[stackPtr++] = child2;
 		}
+	#endif
 	}
 }
 

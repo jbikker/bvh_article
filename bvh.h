@@ -100,7 +100,7 @@ class Mesh
 public:
 	Mesh() = default;
 	Mesh( uint primCount );
-	Mesh( const char* objFile, const char* texFile );
+	Mesh( const char* objFile, const char* texFile, const float scale = 1 );
 	Tri* tri = 0;			// triangle data for intersection
 	TriEx* triEx = 0;		// triangle data for shading
 	int triCount = 0;
@@ -132,8 +132,19 @@ private:
 // top-level BVH node
 struct TLASNode
 {
-	union { struct { float dummy1[3]; uint leftRight; }; struct { float dummy3[3]; unsigned short left, right; }; float3 aabbMin; __m128 aabbMin4; };
-	union { struct { float dummy2[3]; uint BLAS; }; float3 aabbMax; __m128 aabbMax4; };
+	union 
+	{ 
+		struct { float dummy1[3]; uint leftRight; }; 
+		struct { float dummy3[3]; unsigned short left, right; }; 
+		float3 aabbMin; 
+		__m128 aabbMin4; 
+	};
+	union 
+	{ 
+		struct { float dummy2[3]; uint BLAS; }; 
+		float3 aabbMax; 
+		__m128 aabbMax4; 
+	};
 	bool isLeaf() { return leftRight == 0; }
 };
 

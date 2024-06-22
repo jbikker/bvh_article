@@ -95,7 +95,7 @@ float3 RGB8toRGB32F( uint c )
 	return (float3)(r * s, g * s, b * s);
 }
 
-float3 TransformVector( float3* V, float16* T )
+float3 TransformVector( float3* V, __global float16* T )
 {
 	return (float3)(
 		dot( T->s012, *V ),
@@ -104,7 +104,7 @@ float3 TransformVector( float3* V, float16* T )
 	);
 }
 
-float3 TransformPosition( float3* V, float16* T )
+float3 TransformPosition( float3* V, __global float16* T )
 {
 	return (float3)(
 		dot( T->s012, *V ) + T->s3,
@@ -113,7 +113,7 @@ float3 TransformPosition( float3* V, float16* T )
 	);
 }
 
-void IntersectTri( struct Ray* ray, struct Tri* tri, const uint instPrim )
+void IntersectTri( struct Ray* ray, __global struct Tri* tri, const uint instPrim )
 {
 	float3 v0 = (float3)(tri->v0x, tri->v0y, tri->v0z);
 	float3 v1 = (float3)(tri->v1x, tri->v1y, tri->v1z);
@@ -135,7 +135,7 @@ void IntersectTri( struct Ray* ray, struct Tri* tri, const uint instPrim )
 		ray->hit.v = v, ray->hit.instPrim = instPrim;
 }
 
-float IntersectAABB( struct Ray* ray, struct BVHNode* node )
+float IntersectAABB( struct Ray* ray, __global struct BVHNode* node )
 {
 	float tx1 = (node->minx - ray->O.x) * ray->rD.x, tx2 = (node->maxx - ray->O.x) * ray->rD.x;
 	float tmin = min( tx1, tx2 ), tmax = max( tx1, tx2 );
@@ -149,9 +149,9 @@ float IntersectAABB( struct Ray* ray, struct BVHNode* node )
 // BVH traversal
 
 void BVHIntersect( struct Ray* ray, uint instanceIdx,
-	struct Tri* tri, struct BVHNode* bvhNode, uint* triIdx )
+	__global struct Tri* tri, __global struct BVHNode* bvhNode, __global uint* triIdx )
 {
-	struct BVHNode* node = &bvhNode[0], * stack[32];
+	__global struct BVHNode* node = &bvhNode[0], * stack[32];
 	uint stackPtr = 0;
 	while (1)
 	{
@@ -165,14 +165,14 @@ void BVHIntersect( struct Ray* ray, uint instanceIdx,
 			if (stackPtr == 0) break; else node = stack[--stackPtr];
 			continue;
 		}
-		struct BVHNode* child1 = &bvhNode[node->leftFirst];
-		struct BVHNode* child2 = &bvhNode[node->leftFirst + 1];
+		__global struct BVHNode* child1 = &bvhNode[node->leftFirst];
+		__global struct BVHNode* child2 = &bvhNode[node->leftFirst + 1];
 		float dist1 = IntersectAABB( ray, child1 );
 		float dist2 = IntersectAABB( ray, child2 );
 		if (dist1 > dist2)
 		{
 			float d = dist1; dist1 = dist2; dist2 = d;
-			struct BVHNode* c = child1; child1 = child2; child2 = c;
+			__global struct BVHNode* c = child1; child1 = child2; child2 = c;
 		}
 		if (dist1 == 1e30f)
 		{
@@ -186,7 +186,7 @@ void BVHIntersect( struct Ray* ray, uint instanceIdx,
 	}
 }
 
-void TransformRay( struct Ray* ray, float16* invTransform )
+void TransformRay( struct Ray* ray, __global float16* invTransform )
 {
 	// do the transform
 	ray->D = TransformVector( &ray->D, invTransform );
@@ -195,8 +195,8 @@ void TransformRay( struct Ray* ray, float16* invTransform )
 	ray->rD = (float3)(1.0f / ray->D.x, 1.0f / ray->D.y, 1.0f / ray->D.z);
 }
 
-void InstanceIntersect( struct Ray* ray, struct BVHInstance* bvhInstance,
-	int blasIdx, struct Tri* tri, struct BVHNode* bvhNode, uint* triIdx )
+void InstanceIntersect( struct Ray* ray, __global struct BVHInstance* bvhInstance,
+	int blasIdx, __global struct Tri* tri, __global struct BVHNode* bvhNode, __global uint* triIdx )
 {
 	// backup and transform ray using instance transform
 	struct Ray backup = *ray;
@@ -208,14 +208,14 @@ void InstanceIntersect( struct Ray* ray, struct BVHInstance* bvhInstance,
 	*ray = backup;
 }
 
-void TLASIntersect( struct Ray* ray, struct Tri* tri, 
-	struct BVHInstance* bvhInstance, struct TLASNode* tlasNode, 
-	struct BVHNode* bvhNode, uint* triIdx )
+void TLASIntersect( struct Ray* ray, __global struct Tri* tri, 
+	__global struct BVHInstance* bvhInstance, __global struct TLASNode* tlasNode, 
+	__global struct BVHNode* bvhNode, __global uint* triIdx )
 {
 	// initialize reciprocals for TLAS traversal
 	ray->rD = (float3)(1.0f / ray->D.x, 1.0f / ray->D.y, 1.0f / ray->D.z);
 	// use a local stack instead of a recursive function
-	struct TLASNode* node = &tlasNode[0], *stack[32];
+	__global struct TLASNode* node = &tlasNode[0], *stack[32];
 	uint stackPtr = 0;
 	// traversl loop; terminates when the stack is empty
 	while (1)
@@ -229,14 +229,14 @@ void TLASIntersect( struct Ray* ray, struct Tri* tri,
 			continue;
 		}
 		// current node is an interior node: visit child nodes, ordered
-		struct TLASNode* child1 = &tlasNode[node->leftRight & 0xffff];
-		struct TLASNode* child2 = &tlasNode[node->leftRight >> 16];
+		__global struct TLASNode* child1 = &tlasNode[node->leftRight & 0xffff];
+		__global struct TLASNode* child2 = &tlasNode[node->leftRight >> 16];
 		float dist1 = IntersectAABB( ray, child1 );
 		float dist2 = IntersectAABB( ray, child2 );
 		if (dist1 > dist2) 
 		{ 
 			float d = dist1; dist1 = dist2; dist2 = d;
-			struct TLASNode* c = child1; child1 = child2; child2 = c;
+			__global struct TLASNode* c = child1; child1 = child2; child2 = c;
 		}
 		if (dist1 == 1e30f)
 		{
@@ -254,7 +254,7 @@ void TLASIntersect( struct Ray* ray, struct Tri* tri,
 
 // skydome
 
-float3 SampleSky( float3* D, float* skyPixels )
+float3 SampleSky( float3* D, __global float* skyPixels )
 {
 	float phi = atan2( D->z, D->x );
 	uint u = (uint)(3200 * (phi > 0 ? phi : (phi + 2 * PI)) * INV2PI - 0.5f);

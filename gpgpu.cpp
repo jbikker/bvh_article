@@ -17,7 +17,7 @@ TheApp* CreateApp() { return new GPGPUApp(); }
 
 void GPGPUApp::Init()
 {
-	mesh = new Mesh( "assets/teapot.obj", "assets/bricks.png" );
+	mesh = new Mesh( "assets/teapot.obj", "assets/bricks.png", 3 );
 	for (int i = 0; i < 16; i++)
 		bvhInstance[i] = BVHInstance( mesh->bvh, i );
 	tlas = TLAS( bvhInstance, 16 );

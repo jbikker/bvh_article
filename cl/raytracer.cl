@@ -5,10 +5,10 @@ __constant float3 lightPos = (float3)(3, 10, 2);
 __constant float3 lightColor = (float3)(150, 150, 120);
 __constant float3 ambient = (float3)(0.2f, 0.2f, 0.4f);
 
-float3 Trace( struct Ray* ray, float* skyPixels, 
-	struct BVHInstance* instData, struct TLASNode* tlasData,
-	uint* texData, struct Tri* triData, struct TriEx* triExData,
-	struct BVHNode* bvhNodeData, uint* idxData 
+float3 Trace( struct Ray* ray, __global float* skyPixels, 
+	__global struct BVHInstance* instData, __global struct TLASNode* tlasData,
+	__global uint* texData, __global struct Tri* triData, __global struct TriEx* triExData,
+	__global struct BVHNode* bvhNodeData, __global uint* idxData 
 )
 {
 #if 1
@@ -28,7 +28,7 @@ float3 Trace( struct Ray* ray, float* skyPixels,
 		// calculate texture uv based on barycentrics
 		uint triIdx = i.instPrim & 0xfffff;
 		uint instIdx = i.instPrim >> 20;
-		struct TriEx* tri = triExData + triIdx;
+		__global struct TriEx* tri = triExData + triIdx;
 		float2 uv = i.u * tri->uv1 + i.v * tri->uv2 + (1 - (i.u + i.v)) * tri->uv0;
 		int iu = (int)(uv.x * 1024) & 1023;
 		int iv = (int)(uv.y * 1024) & 1023;

@@ -71,7 +71,7 @@ Mesh::Mesh( const uint primCount )
 	triCount = primCount;
 }
 
-Mesh::Mesh( const char* objFile, const char* texFile )
+Mesh::Mesh( const char* objFile, const char* texFile, const float scale )
 {
 	// bare-bones obj file loader; only supports very basic meshes
 	tri = new Tri[25000];
@@ -94,9 +94,9 @@ Mesh::Mesh( const char* objFile, const char* texFile )
 		if (line[0] != 'f') continue; else
 			sscanf( line + 2, "%i/%i/%i %i/%i/%i %i/%i/%i",
 				&a, &b, &c, &d, &e, &f, &g, &h, &i );
-		tri[triCount].vertex0 = P[a - 1], triEx[triCount].N0 = N[c - 1];
-		tri[triCount].vertex1 = P[d - 1], triEx[triCount].N1 = N[f - 1];
-		tri[triCount].vertex2 = P[g - 1], triEx[triCount].N2 = N[i - 1];
+		tri[triCount].vertex0 = P[a - 1] * scale, triEx[triCount].N0 = N[c - 1];
+		tri[triCount].vertex1 = P[d - 1] * scale, triEx[triCount].N1 = N[f - 1];
+		tri[triCount].vertex2 = P[g - 1] * scale, triEx[triCount].N2 = N[i - 1];
 		triEx[triCount].uv0 = UV[b - 1], triEx[triCount].uv1 = UV[e - 1];
 		triEx[triCount++].uv2 = UV[h - 1];
 	}
