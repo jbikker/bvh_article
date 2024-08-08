@@ -245,7 +245,6 @@ void BVH::Subdivide( uint nodeIdx, uint depth, uint& nodePtr, float3& centroidMi
 // vec(0, 1, 2, 3) -> (vec[x], vec[y], vec[z], vec[w])
 #define VecSwizzleMask(vec, mask)    _mm_castsi128_ps(_mm_shuffle_epi32(_mm_castps_si128(vec), mask))
 #define VecSwizzle(vec, x, y, z, w)  VecSwizzleMask(vec, MakeShuffleMask(x,y,z,w))
-#define VecSetW(v, w)                ((v) = _mm_insert_ps((v), _mm_set_ss(w), 0x30))
 
 float BVH::FindBestSplitPlane( BVHNode& node, int& axis, int& splitPos, float3& centroidMin, float3& centroidMax )
 {
@@ -280,6 +279,9 @@ float BVH::FindBestSplitPlane( BVHNode& node, int& axis, int& splitPos, float3& 
 		// gather data for the 7 planes between the 8 bins
 		__m128 leftMin4 = _mm_set_ps1( 1e30f ), rightMin4 = leftMin4;
 		__m128 leftMax4 = _mm_set_ps1( -1e30f ), rightMax4 = leftMax4;
+		const __m128 tmp4 = _mm_setr_ps( -1, -1, -1, 1 );
+		const __m128 xyzMask4 = _mm_cmple_ps( tmp4, _mm_setzero_ps() );
+		
 		for (int i = 0; i < BINS - 1; i++)
 		{
 			leftSum += count[i];
@@ -290,8 +292,8 @@ float BVH::FindBestSplitPlane( BVHNode& node, int& axis, int& splitPos, float3& 
 			rightMax4 = _mm_max_ps( rightMax4, max4[BINS - 2 - i] );
 			__m128 le = _mm_sub_ps( leftMax4, leftMin4 );
 			__m128 re = _mm_sub_ps( rightMax4, rightMin4 );
-			VecSetW(le, 0.0f);
-			VecSetW(re, 0.0f);
+			le = _mm_and_ps(le, xyzMask4);
+			re = _mm_and_ps(re, xyzMask4);
 			leftCountArea[i] = leftSum * _mm_cvtss_f32(_mm_dot_ps(le, VecSwizzle(le, 1, 2, 0, 3))); 
 			rightCountArea[BINS - 2 - i] = rightSum * _mm_cvtss_f32(_mm_dot_ps(re, VecSwizzle(re, 1, 2, 0, 3)));
 		}
