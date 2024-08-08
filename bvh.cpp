@@ -429,7 +429,7 @@ int TLAS::FindBestMatch( int N, int A )
 		__m128 bmax = _mm_max_ps( tlasNode[nodeIdx[A]].aabbMax4, tlasNode[nodeIdx[B]].aabbMax4 );
 		__m128 bmin = _mm_min_ps( tlasNode[nodeIdx[A]].aabbMin4, tlasNode[nodeIdx[B]].aabbMin4 );
 		__m128 e = _mm_and_ps(_mm_sub_ps(bmax, bmin), xyzMask4);
-		float surfaceArea = _mm_cvtss_f32(_mm_dot_ps(e, VecSwizzle(1, 2, 0, 3), 0xff));
+		float surfaceArea = _mm_cvtss_f32(_mm_dot_ps(e, VecSwizzle(e, 1, 2, 0, 3), 0xff));
 		if (surfaceArea < smallest) smallest = surfaceArea, bestB = B;
 	}
 	return bestB;
