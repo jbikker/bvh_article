@@ -241,6 +241,11 @@ void BVH::Subdivide( uint nodeIdx, uint depth, uint& nodePtr, float3& centroidMi
 	Subdivide( rightChildIdx, depth + 1, nodePtr, centroidMin, centroidMax );
 }
 
+#define MakeShuffleMask(x,y,z,w)     (x | (y<<2) | (z<<4) | (w<<6)) /* internal use only */
+// vec(0, 1, 2, 3) -> (vec[x], vec[y], vec[z], vec[w])
+#define VecSwizzleMask(vec, mask)    _mm_castsi128_ps(_mm_shuffle_epi32(_mm_castps_si128(vec), mask))
+#define VecSwizzle(vec, x, y, z, w)  VecSwizzleMask(vec, MakeShuffleMask(x,y,z,w))
+
 float BVH::FindBestSplitPlane( BVHNode& node, int& axis, int& splitPos, float3& centroidMin, float3& centroidMax )
 {
 	float bestCost = 1e30f;
@@ -274,6 +279,9 @@ float BVH::FindBestSplitPlane( BVHNode& node, int& axis, int& splitPos, float3& 
 		// gather data for the 7 planes between the 8 bins
 		__m128 leftMin4 = _mm_set_ps1( 1e30f ), rightMin4 = leftMin4;
 		__m128 leftMax4 = _mm_set_ps1( -1e30f ), rightMax4 = leftMax4;
+		const __m128 tmp4 = _mm_setr_ps( -1, -1, -1, 1 );
+		const __m128 xyzMask4 = _mm_cmple_ps( tmp4, _mm_setzero_ps() );
+		
 		for (int i = 0; i < BINS - 1; i++)
 		{
 			leftSum += count[i];
@@ -282,10 +290,12 @@ float BVH::FindBestSplitPlane( BVHNode& node, int& axis, int& splitPos, float3& 
 			rightMin4 = _mm_min_ps( rightMin4, min4[BINS - 2 - i] );
 			leftMax4 = _mm_max_ps( leftMax4, max4[i] );
 			rightMax4 = _mm_max_ps( rightMax4, max4[BINS - 2 - i] );
-			const __m128 le = _mm_sub_ps( leftMax4, leftMin4 );
-			const __m128 re = _mm_sub_ps( rightMax4, rightMin4 );
-			leftCountArea[i] = leftSum * (le.m128_f32[0] * le.m128_f32[1] + le.m128_f32[1] * le.m128_f32[2] + le.m128_f32[2] * le.m128_f32[0]);
-			rightCountArea[BINS - 2 - i] = rightSum * (re.m128_f32[0] * re.m128_f32[1] + re.m128_f32[1] * re.m128_f32[2] + re.m128_f32[2] * re.m128_f32[0]);
+			__m128 le = _mm_sub_ps( leftMax4, leftMin4 );
+			__m128 re = _mm_sub_ps( rightMax4, rightMin4 );
+			le = _mm_and_ps(le, xyzMask4);
+			re = _mm_and_ps(re, xyzMask4);
+			leftCountArea[i] = leftSum * _mm_cvtss_f32(_mm_dot_ps(le, VecSwizzle(le, 1, 2, 0, 3), 0xff)); 
+			rightCountArea[BINS - 2 - i] = rightSum * _mm_cvtss_f32(_mm_dot_ps(re, VecSwizzle(re, 1, 2, 0, 3), 0xff));
 		}
 	#else
 		struct Bin { aabb bounds; int triCount = 0; } bin[BINS];
@@ -410,12 +420,16 @@ int TLAS::FindBestMatch( int N, int A )
 	// find BLAS B that, when joined with A, forms the smallest AABB
 	float smallest = 1e30f;
 	int bestB = -1;
+	
+	const __m128 tmp4 = _mm_setr_ps( -1, -1, -1, 1 );
+	const __m128 xyzMask4 = _mm_cmple_ps( tmp4, _mm_setzero_ps() );
+	
 	for (int B = 0; B < N; B++) if (B != A)
 	{
-		float3 bmax = fmaxf( tlasNode[nodeIdx[A]].aabbMax, tlasNode[nodeIdx[B]].aabbMax );
-		float3 bmin = fminf( tlasNode[nodeIdx[A]].aabbMin, tlasNode[nodeIdx[B]].aabbMin );
-		float3 e = bmax - bmin;
-		float surfaceArea = e.x * e.y + e.y * e.z + e.z * e.x;
+		__m128 bmax = _mm_max_ps( tlasNode[nodeIdx[A]].aabbMax4, tlasNode[nodeIdx[B]].aabbMax4 );
+		__m128 bmin = _mm_min_ps( tlasNode[nodeIdx[A]].aabbMin4, tlasNode[nodeIdx[B]].aabbMin4 );
+		__m128 e = _mm_and_ps(_mm_sub_ps(bmax, bmin), xyzMask4);
+		float surfaceArea = _mm_cvtss_f32(_mm_dot_ps(e, VecSwizzle(e, 1, 2, 0, 3), 0xff));
 		if (surfaceArea < smallest) smallest = surfaceArea, bestB = B;
 	}
 	return bestB;
