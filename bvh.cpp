@@ -133,13 +133,13 @@ void BVH::Intersect( Ray& ray, uint instanceIdx )
 		}
 		BVHNode* child1 = &bvhNode[node->leftFirst];
 		BVHNode* child2 = &bvhNode[node->leftFirst + 1];
-	#ifdef USE_SSE
+#ifdef USE_SSE
 		float dist1 = IntersectAABB_SSE( ray, child1->aabbMin4, child1->aabbMax4 );
 		float dist2 = IntersectAABB_SSE( ray, child2->aabbMin4, child2->aabbMax4 );
-	#else
+#else
 		float dist1 = IntersectAABB( ray, child1->aabbMin, child1->aabbMax );
 		float dist2 = IntersectAABB( ray, child2->aabbMin, child2->aabbMax );
-	#endif
+#endif
 		if (dist1 > dist2) { swap( dist1, dist2 ); swap( child1, child2 ); }
 		if (dist1 == 1e30f)
 		{
@@ -257,7 +257,7 @@ float BVH::FindBestSplitPlane( BVHNode& node, int& axis, int& splitPos, float3& 
 		float scale = BINS / (boundsMax - boundsMin);
 		float leftCountArea[BINS - 1], rightCountArea[BINS - 1];
 		int leftSum = 0, rightSum = 0;
-	#ifdef USE_SSE
+#ifdef USE_SSE
 		__m128 min4[BINS], max4[BINS];
 		uint count[BINS];
 		for (uint i = 0; i < BINS; i++)
@@ -281,7 +281,7 @@ float BVH::FindBestSplitPlane( BVHNode& node, int& axis, int& splitPos, float3& 
 		__m128 leftMax4 = _mm_set_ps1( -1e30f ), rightMax4 = leftMax4;
 		const __m128 tmp4 = _mm_setr_ps( -1, -1, -1, 1 );
 		const __m128 xyzMask4 = _mm_cmple_ps( tmp4, _mm_setzero_ps() );
-		
+
 		for (int i = 0; i < BINS - 1; i++)
 		{
 			leftSum += count[i];
@@ -292,12 +292,12 @@ float BVH::FindBestSplitPlane( BVHNode& node, int& axis, int& splitPos, float3& 
 			rightMax4 = _mm_max_ps( rightMax4, max4[BINS - 2 - i] );
 			__m128 le = _mm_sub_ps( leftMax4, leftMin4 );
 			__m128 re = _mm_sub_ps( rightMax4, rightMin4 );
-			le = _mm_and_ps(le, xyzMask4);
-			re = _mm_and_ps(re, xyzMask4);
-			leftCountArea[i] = leftSum * _mm_cvtss_f32(_mm_dot_ps(le, VecSwizzle(le, 1, 2, 0, 3), 0xff)); 
-			rightCountArea[BINS - 2 - i] = rightSum * _mm_cvtss_f32(_mm_dot_ps(re, VecSwizzle(re, 1, 2, 0, 3), 0xff));
+			le = _mm_and_ps( le, xyzMask4 );
+			re = _mm_and_ps( re, xyzMask4 );
+			leftCountArea[i] = leftSum * _mm_cvtss_f32( _mm_dp_ps( le, VecSwizzle( le, 1, 2, 0, 3 ), 0xff ) );
+			rightCountArea[BINS - 2 - i] = rightSum * _mm_cvtss_f32( _mm_dp_ps( re, VecSwizzle( re, 1, 2, 0, 3 ), 0xff ) );
 		}
-	#else
+#else
 		struct Bin { aabb bounds; int triCount = 0; } bin[BINS];
 		for (uint i = 0; i < node.triCount; i++)
 		{
@@ -319,7 +319,7 @@ float BVH::FindBestSplitPlane( BVHNode& node, int& axis, int& splitPos, float3& 
 			rightBox.grow( bin[BINS - 1 - i].bounds );
 			rightCountArea[BINS - 2 - i] = rightSum * rightBox.area();
 		}
-	#endif
+#endif
 		// calculate SAH cost for the 7 planes
 		scale = (boundsMax - boundsMin) / BINS;
 		for (int i = 0; i < BINS - 1; i++)
@@ -420,16 +420,16 @@ int TLAS::FindBestMatch( int N, int A )
 	// find BLAS B that, when joined with A, forms the smallest AABB
 	float smallest = 1e30f;
 	int bestB = -1;
-	
+
 	const __m128 tmp4 = _mm_setr_ps( -1, -1, -1, 1 );
 	const __m128 xyzMask4 = _mm_cmple_ps( tmp4, _mm_setzero_ps() );
-	
+
 	for (int B = 0; B < N; B++) if (B != A)
 	{
 		__m128 bmax = _mm_max_ps( tlasNode[nodeIdx[A]].aabbMax4, tlasNode[nodeIdx[B]].aabbMax4 );
 		__m128 bmin = _mm_min_ps( tlasNode[nodeIdx[A]].aabbMin4, tlasNode[nodeIdx[B]].aabbMin4 );
-		__m128 e = _mm_and_ps(_mm_sub_ps(bmax, bmin), xyzMask4);
-		float surfaceArea = _mm_cvtss_f32(_mm_dot_ps(e, VecSwizzle(e, 1, 2, 0, 3), 0xff));
+		__m128 e = _mm_and_ps( _mm_sub_ps( bmax, bmin ), xyzMask4 );
+		float surfaceArea = _mm_cvtss_f32( _mm_dp_ps( e, VecSwizzle( e, 1, 2, 0, 3 ), 0xff ) );
 		if (surfaceArea < smallest) smallest = surfaceArea, bestB = B;
 	}
 	return bestB;
