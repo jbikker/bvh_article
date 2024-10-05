@@ -217,7 +217,7 @@ void TLASIntersect( struct Ray* ray, __global struct Tri* tri,
 	// use a local stack instead of a recursive function
 	__global struct TLASNode* node = &tlasNode[0], *stack[32];
 	uint stackPtr = 0;
-	// traversl loop; terminates when the stack is empty
+	// traversal loop; terminates when the stack is empty
 	while (1)
 	{
 		if (node->leftRight == 0) // isLeaf()

@@ -11,6 +11,10 @@
 // rights are reserved. No responsibility is accepted either.
 // For updates, follow me on twitter: @j_bikker.
 
+
+// on less powerful hardware increase this number to reduce the number of dragons
+#define SKIP 10
+
 TheApp* CreateApp() { return new MassiveApp(); }
 
 // MassiveApp implementation
@@ -90,18 +94,22 @@ void MassiveApp::Init()
 	skyPixels = stbi_loadf( "assets/sky_19.hdr", &skyWidth, &skyHeight, &skyBpp, 0 );
 	for (int i = 0; i < skyWidth * skyHeight * 3; i++) skyPixels[i] = sqrtf( skyPixels[i] );
 	// dragons in the shape of a dragon
+	int instanceCounter = 0;
 	bvhInstance = new BVHInstance[11042];
 	for( int i = 0; i < 11042; i++ )
 	{
-		bvhInstance[i] = BVHInstance( mesh->bvh, i );
-		bvhInstance[i].SetTransform( 
-			mat4::Translate( mesh->P[i] * 0.2f ) * 
-			mat4::Scale( 0.0025f  ) *
-			mat4::Rotate( mesh->N[i], 0 ) *
-			mat4::RotateX( PI / 2 )
-		);
+		if (i % SKIP == 0) {
+			bvhInstance[instanceCounter] = BVHInstance(mesh->bvh, instanceCounter);
+			bvhInstance[instanceCounter].SetTransform(
+				mat4::Translate(mesh->P[i] * 0.2f) *
+				mat4::Scale(0.0025f) *
+				mat4::Rotate(mesh->N[i], 0) *
+				mat4::RotateX(PI / 2)
+			);
+			instanceCounter++;
+		}
 	}
-	tlas = TLAS( bvhInstance, 11042 );
+	tlas = TLAS( bvhInstance, instanceCounter );
 	Timer t;
 	tlas.Build();
 	printf( "building TLAS took %.2fms.\n", t.elapsed() * 1000 );
@@ -116,8 +124,8 @@ void MassiveApp::Init()
 	triExData = new Buffer( mesh->triCount * sizeof( TriEx ), mesh->triEx );
 	Surface* tex = mesh->texture;
 	texData = new Buffer( tex->width * tex->height * sizeof( uint ), tex->pixels );
-	instData = new Buffer( 11042 * sizeof( BVHInstance ), bvhInstance );
-	tlasData = new Buffer( 11042 * 2 * sizeof( TLASNode ), tlas.tlasNode );
+	instData = new Buffer( instanceCounter * sizeof( BVHInstance ), bvhInstance );
+	tlasData = new Buffer( instanceCounter * 2 * sizeof( TLASNode ), tlas.tlasNode );
 	bvhData = new Buffer( mesh->bvh->nodesUsed * sizeof( BVHNode ), mesh->bvh->bvhNode );
 	idxData = new Buffer( mesh->triCount * sizeof( uint ), mesh->bvh->triIdx );
 	triData->CopyToDevice();

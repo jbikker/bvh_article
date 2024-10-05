@@ -16,7 +16,7 @@ float3 Trace( struct Ray* ray, __global float* skyPixels,
 	int rayDepth = 0;
 	float3 R;
 	// bounce until we hit the sky or a diffuse surface
-	while (rayDepth < 4)
+	while (rayDepth < 2)
 	{
 		TLASIntersect( ray, triData, instData, tlasData, bvhNodeData, idxData );
 		struct Intersection i = ray->hit;
@@ -47,7 +47,7 @@ float3 Trace( struct Ray* ray, __global float* skyPixels,
 		{
 			// calculate the specular reflection in the intersection point
 			float3 R = ray->D - (2 * N * dot( N, ray->D ));
-			if (rayDepth == 1) return SampleSky( &R, skyPixels );
+			if (rayDepth >= 1) return SampleSky( &R, skyPixels );
 			ray->D = R;
 			ray->O = I + ray->D * 0.005f;
 			ray->hit.t = 1e30f;
